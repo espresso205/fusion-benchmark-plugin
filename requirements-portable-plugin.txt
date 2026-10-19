@@ -1,0 +1,7 @@
+# Build inputs only. Portable-release recipients never run pip.
+# The builder verifies exact versions and extracts only RECORD-owned files.
+-r requirements-fusion-pipeline.txt
+# Trimesh graph/connectivity operations used by geometry validation.
+networkx==3.7
+# Open3D imports may use its installed machine-learning support modules.
+scikit-learn==1.9.1

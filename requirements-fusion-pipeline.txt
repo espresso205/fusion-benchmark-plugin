@@ -1,0 +1,4 @@
+# Install into the receiver's own Python 3.12 environment.
+# OpenCode and Autodesk Fusion are installed/configured separately.
+-r requirements-evaluator.txt
+ezdxf==1.4.4

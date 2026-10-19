@@ -1,0 +1,8 @@
+{
+  "protocol_id": "fusion-step-adapted-v3.0",
+  "gate": {"angle": "validity", "rule": "Every integrity-verified candidate that passes geometric validation participates in scoring. Confirmed invalid or inconclusive validation is not admitted."},
+  "weights": {"shape": 0.30, "dimension": 0.25, "distance": 0.15, "mass": 0.10, "face_match": 0.10, "section": 0.10},
+  "unavailable_measurement_policy": "After declared calculation paths fail, preserve measured_score=null and award zero credit for that metric, without weight renormalization. Label total policy_lower_bound; disclose missing-credit range, coverage, and errors. This is not a measured zero or a full-quality score.",
+  "notes": "Validation is independent of reference metric qualification. Mass uses robust integration, face_match uses bidirectional surface coverage, section uses a reference-frozen bilateral definition. Fixed world mm; rank eligibility remains false.",
+  "angle_order": ["validity", "shape", "dimension", "distance", "mass", "face_match", "section"]
+}

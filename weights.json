@@ -1,0 +1,6 @@
+{
+  "gate": {"angle": "validity", "rule": "confirmed invalid candidate geometry scores 0 with status candidate_invalid; reference measurement failures, unsupported metrics, and evaluator failures block aggregation with a null score and are reported separately from geometry validity"},
+  "weights": {"shape": 0.30, "dimension": 0.25, "distance": 0.15, "mass": 0.10, "face_match": 0.10, "section": 0.10},
+  "notes": "shape=global geometry (IoU+SurfaceF1+Topology mean, official CADGenBench APIs); dimension=annotation-driven key-dimension pass rate; distance=tail-deviation (symmetric p99 vs 10x official 0.005*diagonal threshold scale); mass=pose-invariant volume/principal-inertia errors; face_match=per-type face-level F1 with geometric gates; section=annotated cross-section contour/area/perimeter comparison. Weights are an explicit proposal for review, not calibrated constants; aggregation script reads this file so they can be changed without touching any scorer. Rank eligibility remains false.",
+  "angle_order": ["validity", "shape", "dimension", "distance", "mass", "face_match", "section"]
+}

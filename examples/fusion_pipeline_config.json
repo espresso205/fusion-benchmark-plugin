@@ -1,0 +1,19 @@
+{
+  "provider": "opencode",
+  "model": "provider/model",
+  "execution_backend": "unified_gateway",
+  "cli_executable": "C:/recipient-tools/opencode.exe",
+  "python": "C:/FusionBenchmark/runtime/python/python.exe",
+  "evaluator_directory": "C:/FusionBenchmark",
+  "questions_root": "C:/benchmark-data/public",
+  "private_cases": "C:/benchmark-data/private/cases.json",
+  "runs_root": "C:/benchmark-output/runs",
+  "private_runs_root": "C:/benchmark-output/private-runs",
+  "fusion_skill": "C:/FusionBenchmark/agent/fusion-modeling/SKILL.md",
+  "fusion_connection": {
+    "url": "http://127.0.0.1:8000/mcp",
+    "enabled": true
+  },
+  "case_ids": ["Q01"],
+  "strict_tool_isolation": true
+}
