@@ -1,6 +1,6 @@
 # Repository use
 
-Read [README.md](README.md), [architecture](docs/ARCHITECTURE.md), and [v3 scoring](docs/SCORING_V3.md).
+Read [README.md](README.md), [architecture](docs/ARCHITECTURE.md), and [v4 scoring](docs/SCORING_V4.md). Default v4 evaluates rigidly aligned geometry and reports coordinate differences separately. Only shape/dimension/mass count toward the score and coverage; other measurements are diagnostics. Explicit v3 retains historical fixed-world behavior. Never overwrite historical outputs or original/derived evidence.
 
 Use `python -B fusion-benchmark-bootstrap.py` for source checkouts; `fusion-benchmark.cmd` requires the complete portable runtime. The coordinator skill is [agent/fusion-benchmark/SKILL.md](agent/fusion-benchmark/SKILL.md). The candidate receives only the public [modeling skill](agent/fusion-modeling/SKILL.md), its question and its submission directory.
 

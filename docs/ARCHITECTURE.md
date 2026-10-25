@@ -8,7 +8,7 @@ flowchart LR
     D --> E[Fusion 原生建模与 F3D 提交]
     E --> F[冻结提交字节与依赖证据]
     F --> G[受信任 Fusion 重开 / STEP 导出]
-    G --> H[v3 评测快照]
+    G --> H[v4 评测快照]
     H --> I[固定权重报告与覆盖率]
     J[私有 GT / 冻结标注] --> H
 ```
@@ -36,3 +36,8 @@ Fusion MCP 请求超时、取消或执行状态未知时，保留锁及请求证
 管理 MCP 拥有私有配置和评分访问权，不能交给候选会话。Worker Gateway 的输入边界和严格工具选项不是操作系统沙箱；Fusion 中的任意脚本仍以桌面用户身份运行。需要强 GT 隔离时，组织者须采用不同身份或虚拟机与受限桥接服务。
 
 直接 CLI `run` 返回运行目录，进度和结果位于该目录及维护端私有输出目录。MCP `start_run` 另返回服务 job ID，`status/results/cancel` 使用此 ID。始终同时检查逐题终态、可信导出证据、评分覆盖和失败原因；`rank_eligible` / `ranking_eligible` 保持 false。
+
+
+## v4 默认评分
+
+当前默认 v4/geometry 使用 evaluate_v4.py / worker_v4.py：原候选准入后生成刚体对齐副本，shape/dimension/mass 计主分；distance/face_match/section 与坐标偏差另作诊断。只有主分缺测降低覆盖。显式 strict 保持世界坐标，旧 v3 仍按前节合同执行。详见 [v4 合同](SCORING_V4.md)。

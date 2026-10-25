@@ -34,7 +34,7 @@ def dispatch(service, message):
         requested = params.get("protocolVersion")
         result = {"protocolVersion": requested if requested in PROTOCOLS else PROTOCOLS[0],
                   "capabilities": {"tools": {"listChanged": False}},
-                  "serverInfo": {"name": service.name, "version": "3.0.0"},
+                  "serverInfo": {"name": service.name, "version": "4.0.0"},
                   "instructions": service.instructions}
     elif method == "ping":
         result = {}
@@ -90,6 +90,8 @@ class ManagementService:
         tool("preflight", "Read-only local configuration and CLI checks; no model or Fusion calls.", readonly=True),
         tool("start_run", "Start an authorized new benchmark in background. Never resumes an old attempt.",
              {"provider": {"type": "string", "enum": ["opencode", "codex", "claude"]}, "model": {"type": "string"},
+              "protocol":{"type":"string","enum":["fusion-step-adapted-v3.0","fusion-step-adapted-v4.0"]},
+              "coordinate_mode":{"type":"string","enum":["geometry","strict"]},
               "case_ids": {"type": "array", "items": {"type": "string"}}, "preflight_only": {"type": "boolean"}}),
         tool("status", "Read a managed job's state.", {"run_id": {"type": "string"}}, ("run_id",), True),
         tool("cancel", "Request cancellation. Unknown Fusion operations retain the lease for reconciliation.", {"run_id": {"type": "string"}}, ("run_id",)),
@@ -113,6 +115,10 @@ class ManagementService:
         if name == "capabilities":
             return {"providers": capabilities(), "budget_scope": "mcp_tools_scope", "fusion_lease": "whole_attempt_serial",
                     "isolation": "trusted_internal_same_account", "configured": self.config is not None,
+                    "default_scoring_protocol":"fusion-step-adapted-v4.0", "default_coordinate_mode":"geometry",
+                    "configured_scoring_protocol":(self.config or {}).get('protocol'),
+                    "configured_coordinate_mode":(self.config or {}).get('coordinate_mode'),
+                    "supported_scoring_protocols":["fusion-step-adapted-v3.0","fusion-step-adapted-v4.0"],
                     "credentials_returned": False, "preflight_calls_models_or_fusion": False}
         if name == "preflight":
             return {"configured": self.config is not None,
@@ -123,6 +129,18 @@ class ManagementService:
                 raise ValueError("server requires maintainer config")
             from .runner import atomic
             config = dict(self.config)
+            if 'protocol' in arguments:
+                if arguments['protocol'] not in ('fusion-step-adapted-v3.0','fusion-step-adapted-v4.0'):
+                    raise ValueError('unsupported scoring protocol')
+                if arguments['protocol'] != config.get('protocol'):
+                    config.pop('coordinate_mode',None)
+                config['protocol']=arguments['protocol']
+            if 'coordinate_mode' in arguments:
+                config['coordinate_mode']=arguments['coordinate_mode']
+            selected_protocol=config.get('protocol','fusion-step-adapted-v4.0')
+            selected_mode=config.get('coordinate_mode','geometry' if selected_protocol=='fusion-step-adapted-v4.0' else 'strict')
+            if selected_mode not in ('geometry','strict') or selected_protocol!='fusion-step-adapted-v4.0' and selected_mode!='strict':
+                raise ValueError('coordinate_mode must be geometry/strict; historical protocols require strict')
             provider = arguments.get("provider", config.get("provider", "opencode"))
             if provider not in ("opencode", "codex", "claude"):
                 raise ValueError("invalid provider")
@@ -173,13 +191,25 @@ class ManagementService:
                 if summary_path.is_file():
                     summary = json.loads(summary_path.read_text(encoding="utf-8"))
                     status.update(batch_mean=summary.get("batch_mean"), protocol=summary.get("protocol_id"),
-                                  measurement_coverage=summary.get("measurement_coverage"))
+                                  measurement_coverage=summary.get("measurement_coverage"),
+                                  coordinate_mode=summary.get('coordinate_mode'), scored_metrics=summary.get('scored_metrics'),
+                                  diagnostic_metrics=summary.get('diagnostic_metrics'))
                     allowed = {"case", "status", "final_score", "measurement_coverage", "measurement_weight_coverage",
                                "validation_status", "validation_passed", "participates_in_scoring", "score_kind", "score_interval",
-                               "unavailable_metrics", "score_status", "aggregate_status", "scored_modules", "unmeasured_modules"}
+                               "unavailable_metrics", "score_status", "aggregate_status", "scored_modules", "unmeasured_modules",
+                               "coordinate_mode", "diagnostic_unavailable_metrics"}
                     metric_allowed = {"score", "status", "measured_score", "awarded_score", "score_source", "quality", "backend",
-                                      "uncertainty", "reason_codes", "method", "method_id", "measurement_status", "measured", "fallback_used"}
+                                      "uncertainty", "reason_codes", "method", "method_id", "measurement_status", "measured", "fallback_used",
+                                      "metric_role", "coordinate_mode"}
+                    pose_fields = {'R','t','rotation_angle_deg','translation_norm_mm','rmse','seed','determinant',
+                                   'orthogonality_error','bbox_center_delta_mm','coordinate_mode',
+                                   'rotation_matrix','translation_mm','rmse_mm','rotation_determinant','rotation_orthogonality_error'}
                     status["scores"] = [{**{key: row[key] for key in allowed if key in row},
+                                         'execution':{key:value for key,value in row.get('execution',{}).items()
+                                                      if key in {'status','returncode','timed_out','wall_s'}},
+                                         **({'pose':{'status':row['pose'].get('status'),
+                                             'raw':{key:value for key,value in row['pose'].get('raw',{}).items() if key in pose_fields}}}
+                                            if isinstance(row.get('pose'),dict) else {}),
                                          "metrics": {module: {key: value[key] for key in metric_allowed if key in value}
                                                      for module, value in row.get("metrics", {}).items() if isinstance(value, dict)}}
                                         for row in summary.get("cases", [])]

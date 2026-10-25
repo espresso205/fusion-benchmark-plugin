@@ -1,0 +1,139 @@
+{
+  "schema_version": "fusion-plugin-source/1",
+  "release_version": "3.0.0",
+  "origin": "maintained evaluator and plugin source snapshot",
+  "files": {
+    "evaluate.py": {
+      "bytes": 12765,
+      "sha256": "dee26fb8fa8eb4e3a1ecf342afb2e641d341f63a0cf1422cb2638abb863a405c"
+    },
+    "scheduler.py": {
+      "bytes": 169,
+      "sha256": "9bd19ddf6c1cf8888273d45afc66958343123d4e24039efaa44fe09c32ed3f07"
+    },
+    "scheduler/__init__.py": {
+      "bytes": 177,
+      "sha256": "d7ce22b5fb7b94e70d7495bd8db2860ef05e7d17076af8179a4f49b79b6029b5"
+    },
+    "scheduler/__main__.py": {
+      "bytes": 3672,
+      "sha256": "5dec6311b6b70f13cae46f14f836b36d5f86bda6c9cc62cb376e9ae72f37984c"
+    },
+    "scheduler/core.py": {
+      "bytes": 25966,
+      "sha256": "bbe5366a648c0dd356e3dd43579bc2b9f6a933f72aa6560322a366d84991174c"
+    },
+    "src/__init__.py": {
+      "bytes": 80,
+      "sha256": "a8637669d09fdc11093a04d9521a4109810a767952eb23a513a6a7d583355b6c"
+    },
+    "src/contract.py": {
+      "bytes": 17772,
+      "sha256": "13c58a1d53fbcd4353a9f20a4ee2276e0e630bf08621beed6f726a465f1ab798"
+    },
+    "src/contract_v3.py": {
+      "bytes": 8933,
+      "sha256": "40eafdcb5fd98900256d57398eb3a905ed3bb5c46194c7f8939c85b100c53e82"
+    },
+    "src/dimension_probes.py": {
+      "bytes": 9273,
+      "sha256": "8203100790cd11de786fd0b6963c8f4963dbb4a19397d7a3fa8f3027c0fc39fe"
+    },
+    "src/face_match.py": {
+      "bytes": 7314,
+      "sha256": "2317588ee8f83d1cbdd5d30b946e27f59a9d86feeb640d5b5aa870bd8624d30e"
+    },
+    "src/io_utils.py": {
+      "bytes": 1150,
+      "sha256": "a3409418fdafb04f3f49fa79bb2d4e845af9b12097893064c695fa173de4330a"
+    },
+    "src/metrics.py": {
+      "bytes": 13407,
+      "sha256": "eb357aabf8009e174e95a98ba608ec220903b7abec39ef5f42919a48cf523cdf"
+    },
+    "src/reporting.py": {
+      "bytes": 11055,
+      "sha256": "a5d8c78f52eaa2365365fcc17feaf5fc5b254d6358c01866b75ad2ee6e77e8a5"
+    },
+    "src/robust_metrics.py": {
+      "bytes": 23050,
+      "sha256": "60c82b0f5a89c672416547e48eaaf427aa9fb4193b8445cd0e267d905b00d497"
+    },
+    "src/section.py": {
+      "bytes": 9648,
+      "sha256": "65cd8983287b70c0a3c99581693c0c60b58489d22de7cb7f84bed20fcc121552"
+    },
+    "vendor/cadgenbench/__init__.py": {
+      "bytes": 1019,
+      "sha256": "2773effbf4149809cdeac785b702eb00b219b5a3a1629a5b34ac474d5be0958a"
+    },
+    "vendor/cadgenbench/common/__init__.py": {
+      "bytes": 903,
+      "sha256": "adee9ebdfdd099157957a7df8fe29f740c09ab083299e1f13dba4b5f29acc9fc"
+    },
+    "vendor/cadgenbench/common/artifacts.py": {
+      "bytes": 16063,
+      "sha256": "0d6dedde5a1038734165b167b3f537a127d2319bdaf55da197b6a8cd61313cba"
+    },
+    "vendor/cadgenbench/common/measurements.py": {
+      "bytes": 4851,
+      "sha256": "af1caca06bfcc03eb3beed8499f74e8b4e9e15f98be9a85e876d04d76b71234a"
+    },
+    "vendor/cadgenbench/common/mesh.py": {
+      "bytes": 31459,
+      "sha256": "50b4312cf55bd4d6aaa3475f35f08879fc40f850b6b594f464814508c1df3a28"
+    },
+    "vendor/cadgenbench/common/profiling.py": {
+      "bytes": 3085,
+      "sha256": "d6624a63e2cd149d7df4272b2d27878b748e471ec54627610d9f231dd14b7137"
+    },
+    "vendor/cadgenbench/common/validity.py": {
+      "bytes": 32892,
+      "sha256": "981fc7efe8180088c7417ac3bf63854778b69f9b134cccb712e61281279f6bf3"
+    },
+    "vendor/cadgenbench/eval/__init__.py": {
+      "bytes": 1531,
+      "sha256": "d0d37eebc885dbb7f54dfd39e5060c9ddb4f8a54aa804d15c547bbafddceedb8"
+    },
+    "vendor/cadgenbench/eval/alignment.py": {
+      "bytes": 18267,
+      "sha256": "b128ebb92bf126b9418bc1661a5fc1e89f51e79bd1ef90c195263ff3036ebe7c"
+    },
+    "vendor/cadgenbench/eval/booleans.py": {
+      "bytes": 6073,
+      "sha256": "1713637c56808130685375eb9f322c849cff428b1f8363c5c47b17bad2ee6000"
+    },
+    "vendor/cadgenbench/eval/sampling.py": {
+      "bytes": 15163,
+      "sha256": "a765e65ab4fd02597bc6b6bdd4b50895e3aac3fb45493814d0d39bd650ea0251"
+    },
+    "vendor/cadgenbench/eval/shape_similarity.py": {
+      "bytes": 25876,
+      "sha256": "71b737e36be53a64356535a79ffa55cc6aecfbc254e84809d1c595ae403179c8"
+    },
+    "vendor/cadgenbench/eval/topo_match.py": {
+      "bytes": 15250,
+      "sha256": "e701330406696d9d55b96463e79510ac26b842173e3577ada04775955a07a043"
+    },
+    "vendor/cadgenbench_LICENSE": {
+      "bytes": 11386,
+      "sha256": "b7c2666a39f34434177de540d73cfaa2968670311a5ad08dd94ee6637709acc9"
+    },
+    "vendor/cadgenbench_pyproject.toml": {
+      "bytes": 2704,
+      "sha256": "d29d9cde48548b9236c2740d1dc7d7e8923bd89881692ceb37b5cf77c044f06e"
+    },
+    "weights.json": {
+      "bytes": 1104,
+      "sha256": "aadf01e74d754259e5fa0f8a3af877ba372a6c9a0ce731325331faf834903060"
+    },
+    "weights_v3.json": {
+      "bytes": 1034,
+      "sha256": "d235dbf475a4f8ed3f75e21141e231c1beacc09c66cc280dd1bcbe96a50b1bc2"
+    },
+    "worker.py": {
+      "bytes": 8258,
+      "sha256": "21cc6ddbb484570bb3541063bdf00092e6b4ff595de8aeef71c5dbf9e2b14e7e"
+    }
+  }
+}

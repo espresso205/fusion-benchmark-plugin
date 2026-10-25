@@ -6,8 +6,15 @@ import sys
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["ablation"]:
+        # Offline analysis shares the evaluator CLI and needs no service/config.
+        from analyze_ablation import main as analyze_ablation_main
+        return analyze_ablation_main(argv[1:])
+
     parser = argparse.ArgumentParser(description="Unified Fusion benchmark management")
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("ablation", help="Analyze saved results without Fusion or configuration")
     for name in ("serve", "doctor"):
         item = commands.add_parser(name)
         item.add_argument("--config", type=Path)

@@ -1,0 +1,7 @@
+{
+  "protocol_id": "fusion-step-adapted-v4.0",
+  "weights": {"shape": 0.46153846153846156, "dimension": 0.38461538461538464, "distance": 0.0, "mass": 0.15384615384615385, "face_match": 0.0, "section": 0.0},
+  "scored_metrics": ["shape", "dimension", "mass"],
+  "diagnostic_metrics": ["distance", "face_match", "section"],
+  "notes": "Preserve the previous 30:25:10 relative weights; no fitting on the 18-case experiment. CADGenBench IoU, Surface F1 and topology retain equal weights within shape. Geometry is rigid aligned by default; pose diagnostics are separate. Only unavailable scored modules reduce credited coverage; diagnostics never contribute to total. Uncalibrated, ranking_eligible=false."
+}

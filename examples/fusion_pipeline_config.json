@@ -1,5 +1,7 @@
 {
   "provider": "opencode",
+  "protocol": "fusion-step-adapted-v4.0",
+  "coordinate_mode": "geometry",
   "model": "provider/model",
   "execution_backend": "unified_gateway",
   "cli_executable": "C:/recipient-tools/opencode.exe",

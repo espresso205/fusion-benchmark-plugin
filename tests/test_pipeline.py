@@ -112,7 +112,8 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(pre['face_match']['status'],'unsupported')
 
     def test_source_mutation_invalidates_persisted_case_and_batch(self):
-        proc=subprocess.Popen([sys.executable,str(BASE/'evaluate.py'),'--cases',str(self.cases),'--output',str(self.output)],
+        proc=subprocess.Popen([sys.executable,str(BASE/'evaluate.py'),'--cases',str(self.cases),'--output',str(self.output),
+                               '--protocol','fusion-step-adapted-v2.0'],
                               stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,cwd=BASE)
         try:
             deadline=time.monotonic()+20

@@ -146,7 +146,7 @@ def extract_evaluator(archive, destination):
 def snapshot_evaluator(source, destination):
     """Freeze only evaluator source, never sibling reports, GT or credentials."""
     source, destination = Path(source).resolve(), Path(destination).resolve()
-    names = {name for name in ("evaluate.py", "worker.py", "bootstrap.py", "scheduler.py", "weights.json", "weights_v3.json")
+    names = {name for name in ("evaluate.py", "evaluate_v4.py", "worker.py", "worker_v4.py", "bootstrap.py", "scheduler.py", "weights.json", "weights_v3.json", "weights_v4.json")
              if (source / name).is_file()}
     for folder in ("src", "scheduler", "vendor"):
         if (source / folder).is_dir():
@@ -244,7 +244,25 @@ def verify_package(root, manifest_sha256):
             raise ValueError("package payload changed: " + name)
 
 
-def validate_evaluation(output, cases_path, returncode, weights_sha256):
+def scoring_options(config, evaluator):
+    evaluator = Path(evaluator)
+    default = ('fusion-step-adapted-v4.0' if (evaluator/'weights_v4.json').is_file() else
+               'fusion-step-adapted-v3.0' if (evaluator/'weights_v3.json').is_file() else 'fusion-step-adapted-v2.0')
+    protocol = config.get('protocol', default)
+    files = {'fusion-step-adapted-v2.0':'weights.json', 'fusion-step-adapted-v3.0':'weights_v3.json',
+             'fusion-step-adapted-v4.0':'weights_v4.json'}
+    if protocol not in files:
+        raise ValueError('unsupported scoring protocol')
+    mode = config.get('coordinate_mode', 'geometry' if protocol=='fusion-step-adapted-v4.0' else 'strict')
+    if mode not in ('geometry','strict') or protocol!='fusion-step-adapted-v4.0' and mode!='strict':
+        raise ValueError('coordinate_mode must be geometry/strict; historical protocols require strict')
+    weights = evaluator/files[protocol]
+    if not weights.is_file():
+        raise ValueError('selected scoring protocol is absent from evaluator snapshot')
+    return protocol, mode, weights
+
+
+def validate_evaluation(output, cases_path, returncode, weights_sha256, *, protocol=None, coordinate_mode=None):
     """Accept only a complete, consistent publication from the unchanged evaluator."""
     if returncode not in (0, 2):
         raise RuntimeError(f"packaged evaluator exit code {returncode}; output is incomplete")
@@ -257,6 +275,15 @@ def validate_evaluation(output, cases_path, returncode, weights_sha256):
     manifest = strict_json(output / "manifest.json")
     summary = strict_json(output / "summary.json")
     manifest_hash = sha(output / "manifest.json")
+    if protocol is not None and manifest.get('protocol_id') != protocol:
+        raise ValueError('evaluation scoring protocol mismatch')
+    is_v4 = manifest.get('protocol_id') == 'fusion-step-adapted-v4.0'
+    if is_v4:
+        mode = manifest.get('coordinate_mode')
+        if mode not in ('geometry','strict') or summary.get('coordinate_mode') != mode or (coordinate_mode is not None and coordinate_mode != mode):
+            raise ValueError('evaluation coordinate mode mismatch')
+        if summary.get('protocol_id') != manifest.get('protocol_id') or manifest.get('schema_version') != '4.0' or summary.get('schema_version') != '4.0':
+            raise ValueError('evaluation v4 schema/protocol mismatch')
     if (manifest.get("cases") != cases or manifest.get("cases_sha256") != sha(cases_path)
             or manifest.get("weights_sha256") != weights_sha256
             or summary.get("run_manifest_sha256") != manifest_hash):
@@ -274,12 +301,17 @@ def validate_evaluation(output, cases_path, returncode, weights_sha256):
         score = final.get("final_score")
         if score is not None and (type(score) not in (int, float) or not math.isfinite(score) or not 0 <= score <= 1):
             raise ValueError("invalid evaluation score")
-    is_v3 = manifest.get("protocol_id") == "fusion-step-adapted-v3.0"
+        if is_v4 and (final.get('coordinate_mode') != manifest['coordinate_mode'] or final.get('protocol_id') != manifest['protocol_id']):
+            raise ValueError('evaluation case protocol/coordinate mode mismatch')
+    is_v3 = manifest.get("protocol_id") in ("fusion-step-adapted-v3.0", 'fusion-step-adapted-v4.0')
     eligible = all(row["final_score"] is not None for row in finals)
     participants = [r for r in finals if r.get("participates_in_scoring") and r["final_score"] is not None] if is_v3 else finals if eligible else []
     mean = math.fsum(row["final_score"] for row in participants) / len(participants) if participants else None
     successful = eligible or (is_v3 and bool(participants) and all(r["status"] in
                                  {"ok", "scored_with_unavailable_metrics", "candidate_invalid"} for r in finals))
+    if is_v4:
+        successful = bool(participants) and all(r['status'] in {'ok','scored_with_unavailable_metrics','candidate_invalid'}
+                       and r.get('execution',{}).get('status')=='completed' for r in finals)
     if (returncode != (0 if successful else 2) or summary.get("all_cases_aggregatable") is not eligible
             or summary.get("batch_mean") != mean or summary.get("ranking_eligible") is not False):
         raise ValueError("evaluation completion/aggregate status mismatch")
@@ -290,7 +322,7 @@ def validate_evaluation(output, cases_path, returncode, weights_sha256):
     if len(indexed) != len(comparisons) or set(indexed) != {(case, module) for case in expected_cases for module in comparison_modules}:
         raise ValueError("evaluation comparison coverage mismatch")
     for (case, module), row in indexed.items():
-        expected = by_id[case].get("metrics", {}).get(module, {}).get("score")
+        expected = by_id[case].get("metrics", {}).get(module, {}).get("measured_score" if is_v4 else "score")
         value = float(row["new_score"]) if row.get("new_score") else None
         if value != expected or (not is_v3 and row.get("aggregate_status") != by_id[case]["status"]):
             raise ValueError("evaluation comparison score/status mismatch")
@@ -417,6 +449,8 @@ class Trial:
             self.state["evaluator_zip_sha256"] = archive_hash
         self.state["evaluator_manifest_sha256"] = sha(self.evaluator / "PACKAGE_MANIFEST.json")
         self.verify_evaluator()
+        protocol, coordinate_mode, _ = scoring_options(self.config,self.evaluator)
+        self.state.update(scoring_protocol=protocol,coordinate_mode=coordinate_mode)
         if getattr(self, "unified_gateway", False):
             from .adapters import capabilities, probe
             doctor = probe(self.provider, self.config.get("cli_executable", self.config.get(self.provider)))
@@ -448,7 +482,7 @@ class Trial:
             if strict_json(row["annotations"])["gt_sha256"] != row["expected_hashes"]["gt"]:
                 raise ValueError("annotation GT binding mismatch")
         atomic(self.private / "reference_registry.json", {"cases": list(self.references.values())})
-        if (self.evaluator / "weights_v3.json").exists():
+        if protocol != 'fusion-step-adapted-v4.0' and (self.evaluator / "weights_v3.json").exists():
             from src.robust_metrics import build_section_plan
             plans = {case: build_section_plan(ref['gt'], strict_json(ref['annotations']))
                      for case, ref in self.references.items()}
@@ -815,20 +849,23 @@ Fusion开始时无文档，只操作自己新建的设计。完成后导出非�
         manifest = self.private / "evaluation_cases.json"
         atomic(manifest, {"cases": cases})
         output = self.private / "evaluation"
-        protocol = self.config.get("protocol", "fusion-step-adapted-v3.0" if (self.evaluator / "weights_v3.json").exists() else "fusion-step-adapted-v2.0")
-        weights_file = self.evaluator / ("weights_v3.json" if protocol == "fusion-step-adapted-v3.0" else "weights.json")
+        protocol, coordinate_mode, weights_file = scoring_options(self.config, self.evaluator)
+        command = [self.config["python"], '-B', str(self.evaluator / "evaluate.py"), "--cases", str(manifest),
+                   "--output", str(output), "--workers", "1", "--timeout", "600", "--protocol", protocol]
+        if protocol == 'fusion-step-adapted-v4.0':
+            command += ['--coordinate-mode', coordinate_mode]
         with (self.private / "evaluation.log").open("x", encoding="utf-8") as log:
-            result = subprocess.run([self.config["python"], '-B', str(self.evaluator / "evaluate.py"), "--cases", str(manifest),
-                                     "--output", str(output), "--workers", "1", "--timeout", "600", "--protocol", protocol],
+            result = subprocess.run(command,
                                     cwd=self.evaluator, stdout=log, stderr=subprocess.STDOUT, timeout=len(cases) * 660 + 120)
         self.state["evaluation"] = {"returncode": result.returncode, "directory": str(output)}
         self.verify_evaluator()
         self.verify_source()
         for row in valid:
             self.verify_public_inputs(row)
-        summary = validate_evaluation(output, manifest, result.returncode, sha(weights_file))
+        summary = validate_evaluation(output, manifest, result.returncode, sha(weights_file), protocol=protocol, coordinate_mode=coordinate_mode)
         self.state["batch_mean"] = summary["batch_mean"] if len(cases) == len(self.state["cases"]) else None
         self.state["scoring_protocol"] = protocol
+        self.state['coordinate_mode'] = coordinate_mode
         self.state["participating_case_count"] = summary.get("participating_case_count")
         by_id = {r["case"]: r for r in summary["cases"]}
         for row in valid:
@@ -838,7 +875,12 @@ Fusion开始时无文档，只操作自己新建的设计。完成后导出非�
                        failure=scored.get("failure"), scores=scored.get("scores"),
                        validation_passed=scored.get("validation_passed"),
                        participates_in_scoring=scored.get("participates_in_scoring"),
-                       score_kind=scored.get("score_kind"), metrics=scored.get("metrics"))
+                       score_kind=scored.get("score_kind"), metrics=scored.get("metrics"),
+                       coordinate_mode=scored.get('coordinate_mode'),
+                       pose={'status':scored.get('pose',{}).get('status')},
+                       evaluation_execution=scored.get('execution'),
+                       measurement_weight_coverage=scored.get('measurement_weight_coverage'),
+                       diagnostic_unavailable_metrics=scored.get('diagnostic_unavailable_metrics'))
         self.save()
 
     def report(self):
@@ -853,8 +895,17 @@ Fusion开始时无文档，只操作自己新建的设计。完成后导出非�
             elapsed = row.get("execution", {}).get("elapsed_s")
             lines.append(f"|{row['case_id']}|{row['state']}|{elapsed:.1f}|{row.get('evaluation_status', '未评分')}|{score_text}|" if elapsed is not None
                          else f"|{row['case_id']}|{row['state']}|—|未评分|—|")
-        is_v3 = self.state.get('scoring_protocol') == 'fusion-step-adapted-v3.0'
-        lines.extend(["", "所有题逐行保留；v3 validation通过的产物全部参与固定权重评分，缺失测量明确列为未测得并保守计分。" if is_v3 else "所有题逐行保留；v2测量阻断仍保留无分终态。",
+        is_v3 = self.state.get('scoring_protocol') in ('fusion-step-adapted-v3.0','fusion-step-adapted-v4.0')
+        if self.state.get('scoring_protocol') == 'fusion-step-adapted-v4.0':
+            lines.extend(['', 'v4 坐标模式：' + self.state.get('coordinate_mode','unknown') + '；shape/dimension/mass 计分，其他指标与坐标偏差单列诊断。', '',
+                          '|题目|主分实测权重覆盖|对齐诊断状态|诊断未测|评测执行|','|---|---:|---|---|---|'])
+            for row in self.state['cases']:
+                coverage=row.get('measurement_weight_coverage')
+                coverage_text=f'{100*coverage:.1f}%' if isinstance(coverage,(int,float)) else '—'
+                lines.append('|'+row['case_id']+'|'+coverage_text+'|'+str((row.get('pose') or {}).get('status','未测得'))
+                             +'|'+(', '.join(row.get('diagnostic_unavailable_metrics') or []) or '无')
+                             +'|'+str((row.get('evaluation_execution') or {}).get('status','未执行'))+'|')
+        lines.extend(["", "所有题逐行保留；validation通过的产物全部参与相应协议的固定权重评分，缺失正式计分测量明确列为未测得并保守计分。" if is_v3 else "所有题逐行保留；v2测量阻断仍保留无分终态。",
                       "均分和参与数量以私有评测summary.json为准；批次完成与完整实测覆盖分别报告。", "",
                       "完整运行证据：pipeline-status.json、runner-events.jsonl、audit/、ledger/、trusted_export/。",
                       "私有评测目录含 GT/标注快照，只由评测维护端访问。"])

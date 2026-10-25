@@ -143,7 +143,7 @@ def run_case(row, output, manifest_hash, weights, timeout, protocol_id='fusion-s
     return aggregate
 
 
-def main():
+def legacy_main():
     from src.contract import atomic_write_json, refresh_assessment, failed_case_result, PROTOCOL_ID
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--cases', type=Path, required=True)
@@ -223,6 +223,17 @@ def main():
     print('Output:', output, 'wall_s:', summary['wall_s'], flush=True)
     return 0 if eligible or (is_v3 and participants and all_admitted_scored and all(r['status'] in
                         ('ok', 'scored_with_unavailable_metrics', 'candidate_invalid') for r in results)) else 2
+
+
+def main():
+    # Route explicitly: all legacy parsing, formulas and execution stay intact.
+    selector = argparse.ArgumentParser(add_help=False)
+    selector.add_argument('--protocol', default='fusion-step-adapted-v4.0')
+    selected, _ = selector.parse_known_args()
+    if selected.protocol == 'fusion-step-adapted-v4.0':
+        from evaluate_v4 import main as main_v4
+        return main_v4()
+    return legacy_main()
 
 
 if __name__ == '__main__':

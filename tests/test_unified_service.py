@@ -77,12 +77,17 @@ class UnifiedServiceTests(unittest.TestCase):
             (run / "pipeline-status.json").write_text(json.dumps({"state": "completed", "cases": [{"case_id": "Q01", "final_score": 0.8}]}))
             evaluation = root / "private/fusion-example/evaluation"
             evaluation.mkdir(parents=True)
-            (evaluation / "summary.json").write_text(json.dumps({"cases": [{"case": "Q01", "final_score": 0.8,
-                "metrics": {"shape": {"score": 0.7}}, "measurement_coverage": 0.9, "gt": "PRIVATE_PATH"}], "batch_mean": 0.8}))
+            (evaluation / "summary.json").write_text(json.dumps({"coordinate_mode":"geometry", "cases": [{"case": "Q01", "final_score": 0.8,
+                "coordinate_mode":"geometry", "pose":{"status":"ok","raw":{"R":[[1,0,0],[0,1,0],[0,0,1]],"t":[1,2,3],
+                    "aligned_candidate_path":"PRIVATE_PATH", "translation_norm_mm":3.74}},
+                "metrics": {"shape": {"score": 0.7,"metric_role":"scored"}}, "measurement_coverage": 0.9, "gt": "PRIVATE_PATH"}], "batch_mean": 0.8}))
             result = ManagementService(config).call("results", {"run_id": identifier})
             self.assertEqual(result["scores"][0]["metrics"]["shape"]["score"], 0.7)
             self.assertEqual(result["scores"][0]["measurement_coverage"], 0.9)
             self.assertNotIn("PRIVATE_PATH", json.dumps(result))
+            self.assertEqual(result['coordinate_mode'],'geometry')
+            self.assertEqual(result['scores'][0]['metrics']['shape']['metric_role'],'scored')
+            self.assertEqual(result['scores'][0]['pose']['raw']['t'],[1,2,3])
 
     def test_job_failure_is_not_overwritten_by_stale_completed_pipeline(self):
         from fusion_pipeline.service import ManagementService
@@ -100,6 +105,18 @@ class UnifiedServiceTests(unittest.TestCase):
             result = ManagementService(config).call("status", {"run_id": identifier})
             self.assertEqual(result["state"], "failed")
             self.assertFalse(result["batch_complete"])
+
+    def test_management_advertises_v4_and_rejects_v3_geometry_before_launch(self):
+        from fusion_pipeline.service import ManagementService
+        capabilities=ManagementService().call('capabilities',{})
+        self.assertEqual(capabilities['default_scoring_protocol'],'fusion-step-adapted-v4.0')
+        definition=next(t for t in ManagementService.tools if t['name']=='start_run')['inputSchema']['properties']
+        self.assertEqual(set(definition['coordinate_mode']['enum']),{'geometry','strict'})
+        with tempfile.TemporaryDirectory() as d:
+            config=Path(d)/'config.json'
+            config.write_text(json.dumps(dict(provider='opencode',model='test/model')),encoding='utf-8')
+            with self.assertRaisesRegex(ValueError,'coordinate'):
+                ManagementService(config).call('start_run',dict(protocol='fusion-step-adapted-v3.0',coordinate_mode='geometry'))
 
 
 if __name__ == "__main__":

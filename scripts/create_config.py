@@ -19,9 +19,14 @@ def main(argv=None):
     parser.add_argument('--private-runs-root', type=Path, required=True)
     parser.add_argument('--fusion-url', required=True, help='Verified recipient-local Fusion MCP endpoint')
     parser.add_argument('--case-ids', nargs='+', default=['Q01'])
+    parser.add_argument('--protocol', choices=('fusion-step-adapted-v3.0','fusion-step-adapted-v4.0'), default='fusion-step-adapted-v4.0')
+    parser.add_argument('--coordinate-mode', choices=('geometry','strict'))
     parser.add_argument('--allow-native-tools', action='store_true',
                         help='Explicitly disable strict tool isolation; native tools remain available in the trusted same-account environment')
     args = parser.parse_args(argv)
+    coordinate_mode = args.coordinate_mode or ('geometry' if args.protocol=='fusion-step-adapted-v4.0' else 'strict')
+    if args.protocol=='fusion-step-adapted-v3.0' and coordinate_mode!='strict':
+        parser.error('v3 requires strict coordinate mode')
     if args.provider == 'codex' and not args.allow_native_tools:
         parser.error('the Codex adapter cannot disable all native tools; choose another provider for strict tool isolation, '
                      'or explicitly pass --allow-native-tools only for a trusted same-account environment (not an OS sandbox)')
@@ -35,6 +40,7 @@ def main(argv=None):
     root = Path(__file__).resolve().parents[1]
     config = {
         'provider': args.provider, 'model': args.model,
+        'protocol': args.protocol, 'coordinate_mode': coordinate_mode,
         'execution_backend': 'unified_gateway',
         'cli_executable': str(args.cli_executable.resolve()),
         'python': str(Path(sys.executable).resolve()), 'evaluator_directory': str(root),

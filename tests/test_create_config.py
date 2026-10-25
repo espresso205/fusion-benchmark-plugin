@@ -51,6 +51,15 @@ class CreateConfigTests(unittest.TestCase):
         self.assertEqual(config['provider'], 'codex')
         self.assertFalse(config['strict_tool_isolation'])
 
+    def test_scoring_mode_default_is_explicit_and_v3_cannot_align(self):
+        result,target=self.generate('opencode')
+        self.assertEqual(result.returncode,0,result.stderr)
+        config=json.loads(target.read_text(encoding='utf-8'))
+        self.assertEqual((config['protocol'],config['coordinate_mode']),('fusion-step-adapted-v4.0','geometry'))
+        result,target=self.generate('claude','--protocol','fusion-step-adapted-v3.0','--coordinate-mode','geometry')
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse(target.exists())
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -4,7 +4,7 @@
 
 源码检出：在自己的 Windows x64 / CPython 3.12 环境安装[锁定依赖](../requirements-portable-plugin.lock.txt)，从仓库根运行 `python -B fusion-benchmark-bootstrap.py`。完整便携发布包：保留全部目录结构，使用 `fusion-benchmark.cmd`，不需要接收方再安装 Python 或 pip 依赖。纯源码目录不含 `runtime/`，所以不能直接使用 CMD 启动器。
 
-接收方仍需已经安装并登录授权的 Autodesk Fusion、交互桌面、可用 Fusion MCP 桥接，以及自己的 OpenCode/Codex/Claude Code CLI 和模型权限。不要复制维护者的 CLI 配置、登录目录或凭据。
+执行建模评测的接收方仍需已经安装并登录授权的 Autodesk Fusion、交互桌面、可用 Fusion MCP 桥接，以及自己的 OpenCode/Codex/Claude Code CLI 和模型权限。不要复制维护者的 CLI 配置、登录目录或凭据。已有结果的 `ablation` 分析只需 Python 标准库或完整便携包，使用方法见下文。
 
 ```powershell
 python -B fusion-benchmark-bootstrap.py doctor
@@ -61,7 +61,26 @@ python -B fusion-benchmark-bootstrap.py run --config ../local-settings/pipeline.
 
 每题为新会话和新尝试。默认合同采用 200 次 Gateway 工具调用和 1800 秒预算，具体以 `get_contract` 返回值为准。`strict_tool_isolation` 会拒绝无法禁用原生工具的适配器；它不是 OS 沙箱。单账号 Fusion 脚本仍可能访问该账号文件权限范围，强隔离需额外身份/虚拟机与受限工具代理。
 
-候选交付 F3D 后，维护端冻结、独立重开并导出 STEP，再执行[v3 评分](SCORING_V3.md)。未知 Fusion 状态保留锁和请求证据，不自动重试或改写旧 run。成绩应同时报告验证状态、参与题数、六项测量覆盖与缺失项，不能把未测得当成实测零分。
+候选交付 F3D 后，维护端冻结、独立重开并导出 STEP，再执行默认[v4 几何符合评分](SCORING_V4.md)，坐标偏差单列。未知 Fusion 状态保留锁和请求证据，不自动重试或改写旧 run。成绩应同时报告验证状态、参与题数、三项主分的测量覆盖、缺失项及诊断状态，不能把未测得当成实测零分。
+
+## 已有结果的离线消融分析
+
+`ablation` 读取已完成评测的结果，调用与独立评测器相同的公共分析 CLI。无需 `--config`、模型账号或 Fusion；分析不读取 STEP，也不重跑几何测量。源码入口：
+
+```powershell
+python -B fusion-benchmark-bootstrap.py ablation --help
+python -B fusion-benchmark-bootstrap.py ablation --input C:/benchmark/private/runs/finished-v3 --output C:/benchmark/analysis/new-ablation
+```
+
+完整便携包入口：
+
+```powershell
+.\fusion-benchmark.cmd ablation --input C:/benchmark/private/runs/finished-v3 --output C:/benchmark/analysis/new-ablation
+```
+
+`--input` 可接收一个或多个结果目录、`summary.json` 或受支持的历史 `final_scores.json`。需要指定来源 ID 或系统名时使用 `--manifest`；它与 `--input` 互斥。`--output` 必须是尚不存在的新目录，且位于输入目录之外；便携包用户还应放在包目录外。
+
+结果包括 `ablation.json`、`ablation.csv` 和 `ablation.md`，分别呈现正式计分项完整实测的主分析与政策计分分析，保留排除原因和测量覆盖率。v4 完整样本只要求 shape/dimension/mass 三项，v3/历史协议仍要求六项；v4 诊断缺测另列，geometry 与 strict 不合并作同口径系统比较。分析中的排序不赋予正式排名资格。输入合同、系统比较条件和报告解释见[消融分析说明](ABLATION.md)。
 
 ## 完整性与许可
 

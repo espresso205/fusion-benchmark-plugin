@@ -1,11 +1,12 @@
 {
   "schema_version": "fusion-plugin-source/1",
-  "release_version": "3.0.0",
-  "origin": "maintained evaluator and plugin source snapshot",
+  "release_version": "4.0.0",
+  "origin": "v4 local adaptation; v3 and CADGenBench algorithms preserved; prior manifest SCORING_SOURCE_MANIFEST_V3.json",
   "files": {
     "evaluate.py": {
-      "bytes": 12765,
-      "sha256": "dee26fb8fa8eb4e3a1ecf342afb2e641d341f63a0cf1422cb2638abb863a405c"
+      "bytes": 13197,
+      "sha256": "d9e37972c5a505b046753ee31720769d54e0db2fa73a746d6959cd9176b7cb65",
+      "previous_sha256": "dee26fb8fa8eb4e3a1ecf342afb2e641d341f63a0cf1422cb2638abb863a405c"
     },
     "scheduler.py": {
       "bytes": 169,
@@ -134,6 +135,36 @@
     "worker.py": {
       "bytes": 8258,
       "sha256": "21cc6ddbb484570bb3541063bdf00092e6b4ff595de8aeef71c5dbf9e2b14e7e"
+    },
+    "evaluate_v4.py": {
+      "sha256": "5ec639073107791134934000fa267b4a94c6ae35a98a037fa1efcae697ef6c3c",
+      "bytes": 11123,
+      "source": "local v4 adaptation"
+    },
+    "worker_v4.py": {
+      "sha256": "0133a4e067d2ac53c7ad1d41b02a46a055e038fbfb7a16f9460ec31289375b1d",
+      "bytes": 5148,
+      "source": "local v4 adaptation"
+    },
+    "weights_v4.json": {
+      "sha256": "385eeeda9e5da91ef92af28d69ba9f14edc899b30aa8ffbd8f78fee82dce9ed5",
+      "bytes": 704,
+      "source": "local v4 adaptation"
+    },
+    "src/contract_v4.py": {
+      "sha256": "6779934e8ddfa5800145c649572f697e5a57976fbc4b88849495b4e08d576b86",
+      "bytes": 10012,
+      "source": "local v4 adaptation"
+    },
+    "src/geometry_v4.py": {
+      "sha256": "6b9e6bf4467f00c0987023dfbe3060f251d8f654dc1e4de898cf9d5e0f9cbc6a",
+      "bytes": 16173,
+      "source": "local v4 adaptation"
+    },
+    "src/reporting_v4.py": {
+      "sha256": "6e7a6d45da040a6958e8ed13ede2f23f2779e63c10827d8a478d68050ff4b7a5",
+      "bytes": 5348,
+      "source": "local v4 adaptation"
     }
   }
 }
