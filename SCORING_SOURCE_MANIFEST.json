@@ -137,9 +137,10 @@
       "sha256": "21cc6ddbb484570bb3541063bdf00092e6b4ff595de8aeef71c5dbf9e2b14e7e"
     },
     "evaluate_v4.py": {
-      "sha256": "5ec639073107791134934000fa267b4a94c6ae35a98a037fa1efcae697ef6c3c",
-      "bytes": 11123,
-      "source": "local v4 adaptation"
+      "sha256": "a1b23c14dcc97a03fe82f276f7cf636cbf77d2ecfbf18efbae78c43cf02569c8",
+      "bytes": 11535,
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged",
+      "previous_sha256": "5ec639073107791134934000fa267b4a94c6ae35a98a037fa1efcae697ef6c3c"
     },
     "worker_v4.py": {
       "sha256": "0133a4e067d2ac53c7ad1d41b02a46a055e038fbfb7a16f9460ec31289375b1d",
@@ -165,6 +166,112 @@
       "sha256": "6e7a6d45da040a6958e8ed13ede2f23f2779e63c10827d8a478d68050ff4b7a5",
       "bytes": 5348,
       "source": "local v4 adaptation"
+    },
+    "fusion_pipeline/cli.py": {
+      "bytes": 4179,
+      "sha256": "ce427d0e8d3212bc880122bad48cca5dde8b52119b7b015121927a72ac1efffe",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "fusion_pipeline/reporting.py": {
+      "bytes": 4109,
+      "sha256": "b5be07d6d9b871ca1c01cd8d7e551af2bb8b9c7002b7bd74a4ceca02337da294",
+      "source": "HTML report presentation and ordered multi-format public input assets, 2026-10-26; scoring unchanged"
+    },
+    "fusion_pipeline/runner.py": {
+      "bytes": 65642,
+      "sha256": "4f0b9a9f62d718321712bcfe61945f89fde14ffb26a23eafbb10243af01a4077",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "fusion_pipeline/service.py": {
+      "bytes": 15456,
+      "sha256": "bcc5c83f179127474e79406a1a84eaf0d12f18638d83a430431d79a019d6e4f7",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "render_report.py": {
+      "bytes": 1453,
+      "sha256": "f05069a54e6af61655227b0b3ce35c1f298411560bbe41389dc6d165c1e115db",
+      "source": "HTML report presentation and ordered multi-format public input assets, 2026-10-26; scoring unchanged"
+    },
+    "report_assets/VIEWER_SOURCES.json": {
+      "bytes": 2757,
+      "sha256": "9371aada1546f9ee4d55e91db3c7ecaf9ef8b08229031e4028d209ee921514c2",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "report_assets/licenses/CADViewer-MIT.txt": {
+      "bytes": 1089,
+      "sha256": "c87d3092aca64d2bd728920d82e5e488b997120a5af02d6ab2a38fae2103719a",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "report_assets/licenses/Three-MIT.txt": {
+      "bytes": 1081,
+      "sha256": "852e0e8699169bf9f6fdc6bda3e682d078dcbc738b5d33e74df594721bff271d",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "report_assets/report.css": {
+      "bytes": 15951,
+      "sha256": "8ba468f383dfb2d99fc9c5dfc2202bcdace9d3970a840f8072ba623227e4a583",
+      "source": "HTML report presentation and ordered multi-format public input assets, 2026-10-26; scoring unchanged"
+    },
+    "report_assets/report.js": {
+      "bytes": 11209,
+      "sha256": "040f1c4c5b51419d5b5ab3ff23cb8c281753e8b4a33193e2d78ddb3d67acf5a9",
+      "source": "HTML explanation of unscored validation timeouts and accurate preview fallback, 2026-10-26; scoring formulas unchanged"
+    },
+    "report_assets/vendor/three.module.js": {
+      "bytes": 1272972,
+      "sha256": "76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "report_assets/viewer/comparison-view.js": {
+      "bytes": 11201,
+      "sha256": "3658a0f05a2f5a06208feaac5b13ef0169374908aa38cf7b8eab0d1ebebf565f",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "report_assets/viewer/mesh-validation.js": {
+      "bytes": 1233,
+      "sha256": "0a0dd357a88b66ae0cf9b9f8e403b348f8345fe496879031969cc9afe306a3d0",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "report_assets/viewer/preview-geometry-worker.js": {
+      "bytes": 1232,
+      "sha256": "daa17336f263b03cf57d895d562ff0d9255e9f8c11abd70f32848090bad35e06",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "serve_report.py": {
+      "bytes": 3956,
+      "sha256": "812dbfc646e1151de57dacdfae798a033dc20d50c692b84975a62abba3143314",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "src/display_assets.py": {
+      "bytes": 15725,
+      "sha256": "7f392b9efba4af3be1f221f8a140567f03cfaf59912ca999058bf901370c6b5b",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "src/display_mesh.py": {
+      "bytes": 5484,
+      "sha256": "700a57eb746dae18ab9e2951e202e41092fb042127e26cfedf7d04b2a8cb6724",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "src/display_worker.py": {
+      "bytes": 6664,
+      "sha256": "ac5e87c61cde0cec90806f81d0054cd4edd60de0e581c978041cbe580cff2a33",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "src/html_reporting.py": {
+      "bytes": 23930,
+      "sha256": "36d5a37fd1e4bd2c6325fb1b0aa81e3594e9cf2d93c02c1d029b67e5b169cc59",
+      "source": "HTML explanation of unscored validation timeouts and accurate preview fallback, 2026-10-26; scoring formulas unchanged"
+    },
+    "src/report_data.py": {
+      "bytes": 33269,
+      "sha256": "c01a078dd78673951f67ac1dcc966e3e40a577e34f8e41c26ad5d2504da578d6",
+      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+    },
+    "src/report_inputs.py": {
+      "bytes": 11484,
+      "sha256": "afee2a5b38958c1238499e5e834914e7a52451c6211a32241e147906da0fe046",
+      "source": "HTML report presentation and ordered multi-format public input assets, 2026-10-26; scoring unchanged"
     }
-  }
+  },
+  "html_report_revision": "2026-10-26: refined presentation, optional input materials, explicit validation-timeout explanation; scoring unchanged"
 }

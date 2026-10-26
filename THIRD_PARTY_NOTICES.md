@@ -1,0 +1,9 @@
+# Third-party notices
+
+The repository contains a selected subset of [Hugging Face CADGenBench](https://github.com/huggingface/cadgenbench), with upstream headers, [Apache License 2.0](vendor/cadgenbench_LICENSE) and [project metadata](vendor/cadgenbench_pyproject.toml) retained. [SCORING_SOURCE_MANIFEST.json](SCORING_SOURCE_MANIFEST.json) records the distributed scoring source bytes.
+
+The HTML report adapts display-mesh and comparison-viewer code from a CADViewer local source snapshot, copyright 2026 earthtojake, under the [MIT License](report_assets/licenses/CADViewer-MIT.txt). The original snapshot hashes and adaptation notes are recorded in [VIEWER_SOURCES.json](report_assets/VIEWER_SOURCES.json); no upstream Git revision is claimed for that snapshot. The report also bundles [Three.js 0.160.0](https://github.com/mrdoob/three.js/tree/r160), copyright 2010–2023 three.js authors, under its [MIT License](report_assets/licenses/Three-MIT.txt). These assets and both license texts are copied into each generated report's `assets/` directory and must remain with redistributed reports.
+
+Source-checkout dependencies are installed separately. Portable releases additionally carry CPython, the dependency closure and their license files; see [portable runtime notices](licenses/PORTABLE_RUNTIME_NOTICES.md) and the generated `licenses/inventory.json`. The cadquery-ocp wrapper's Apache license does not replace Open CASCADE Technology's LGPL 2.1 license and exception, retained in [licenses/occt-LICENSE_LGPL_21.txt](licenses/occt-LICENSE_LGPL_21.txt) and [licenses/occt-OCCT_LGPL_EXCEPTION.txt](licenses/occt-OCCT_LGPL_EXCEPTION.txt). The repository does not override third-party rights.
+
+Autodesk Fusion, its add-in/bridge, model-provider software, credentials, private benchmark references and historical results are not included in the source repository or general portable release.

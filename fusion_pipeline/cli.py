@@ -11,10 +11,15 @@ def main(argv=None):
         # Offline analysis shares the evaluator CLI and needs no service/config.
         from analyze_ablation import main as analyze_ablation_main
         return analyze_ablation_main(argv[1:])
+    if argv[:1] == ["report"]:
+        # Explicit paths are confined to the offline maintainer CLI.
+        from render_report import main as render_report_main
+        return render_report_main(argv[1:])
 
     parser = argparse.ArgumentParser(description="Unified Fusion benchmark management")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("ablation", help="Analyze saved results without Fusion or configuration")
+    commands.add_parser("report", help="Build a private HTML report from saved v4 results")
     for name in ("serve", "doctor"):
         item = commands.add_parser(name)
         item.add_argument("--config", type=Path)
@@ -60,7 +65,12 @@ def main(argv=None):
         from .runner import Trial
         trial = Trial(args.config)
         print(json.dumps({"run": str(trial.run)}, ensure_ascii=False), flush=True)
-        return trial.run_all(preflight_only=args.preflight_only)
+        code = trial.run_all(preflight_only=args.preflight_only)
+        from .reporting import report_references
+        artifacts = report_references(trial.private)
+        if artifacts:
+            print(json.dumps({"run": str(trial.run), **artifacts}, ensure_ascii=False), flush=True)
+        return code
     else:
         result = ManagementService(args.config).call(args.command, {"run_id": args.run_id})
     print(json.dumps(result, ensure_ascii=False, indent=2))

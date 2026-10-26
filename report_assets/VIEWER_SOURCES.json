@@ -1,0 +1,66 @@
+{
+  "schema_version": "fusion-viewer-sources/1",
+  "cadviewer": {
+    "origin": "cad-viewer local source snapshot",
+    "revision": null,
+    "license": "licenses/CADViewer-MIT.txt",
+    "files": [
+      {
+        "path": "scripts/viewer/packages/cadpy/src/cadpy/step_display_mesh.py",
+        "sha256": "f43994ccc0f7b058c913c17e91dd411c58daa1c39e7d3a101284dea6a070ea78"
+      },
+      {
+        "path": "scripts/viewer/step-evaluator-ui/comparison-view.js",
+        "sha256": "8edb4568481c3788f92ed8a67d9f8e7cf403c1917d2141a7d3623491076ece65"
+      },
+      {
+        "path": "scripts/viewer/step-evaluator-ui/preview-geometry-worker.js",
+        "sha256": "da27dcd47e15d0c771cc8b1cefc162762fff8a78f6f6c212062b54f42d9f15e4"
+      },
+      {
+        "path": "LICENSE",
+        "sha256": "c87d3092aca64d2bd728920d82e5e488b997120a5af02d6ab2a38fae2103719a"
+      }
+    ]
+  },
+  "three": {
+    "version": "0.160.0",
+    "url": "https://registry.npmjs.org/three/-/three-0.160.0.tgz",
+    "archive_sha256": "1ee2f935c4f555814b388e87b5ef78a44856bd2e9d0feb88643a6e193fb42856",
+    "license": "licenses/Three-MIT.txt",
+    "sha256": "76dea8151bc9352aef3528b4262e249b2604f62543828328db978d060d61a495"
+  },
+  "adaptations": [
+    "Display mesh functions extracted without evaluator/history/cache imports; generator independently reads STEP in mm.",
+    "Relative module URLs; instance-scoped interaction, cancellation, validation, worker timeout and disposal.",
+    "Both models use one display origin and camera; no separate normalization or scoring.",
+    "Offscreen VTK raster thumbnails share one orthographic camera; candidate left, reference right; no face dropping.",
+    "Canvas CSS dimensions are independent of device-pixel drawing buffer; immediate initial resize and bounded grid sizing."
+  ],
+  "adapted_files": [
+    {
+      "path": "src/display_mesh.py",
+      "sha256": "700a57eb746dae18ab9e2951e202e41092fb042127e26cfedf7d04b2a8cb6724"
+    },
+    {
+      "path": "src/display_worker.py",
+      "sha256": "ac5e87c61cde0cec90806f81d0054cd4edd60de0e581c978041cbe580cff2a33"
+    },
+    {
+      "path": "src/display_assets.py",
+      "sha256": "7f392b9efba4af3be1f221f8a140567f03cfaf59912ca999058bf901370c6b5b"
+    },
+    {
+      "path": "report_assets/viewer/comparison-view.js",
+      "sha256": "3658a0f05a2f5a06208feaac5b13ef0169374908aa38cf7b8eab0d1ebebf565f"
+    },
+    {
+      "path": "report_assets/viewer/preview-geometry-worker.js",
+      "sha256": "daa17336f263b03cf57d895d562ff0d9255e9f8c11abd70f32848090bad35e06"
+    },
+    {
+      "path": "report_assets/viewer/mesh-validation.js",
+      "sha256": "0a0dd357a88b66ae0cf9b9f8e403b348f8345fe496879031969cc9afe306a3d0"
+    }
+  ]
+}

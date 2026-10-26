@@ -146,8 +146,14 @@ def extract_evaluator(archive, destination):
 def snapshot_evaluator(source, destination):
     """Freeze only evaluator source, never sibling reports, GT or credentials."""
     source, destination = Path(source).resolve(), Path(destination).resolve()
-    names = {name for name in ("evaluate.py", "evaluate_v4.py", "worker.py", "worker_v4.py", "bootstrap.py", "scheduler.py", "weights.json", "weights_v3.json", "weights_v4.json")
+    names = {name for name in ("evaluate.py", "evaluate_v4.py", "worker.py", "worker_v4.py", "bootstrap.py", "scheduler.py", "weights.json", "weights_v3.json", "weights_v4.json", "render_report.py", "serve_report.py")
              if (source / name).is_file()}
+    for name in ("report_assets/report.css", "report_assets/report.js", "report_assets/VIEWER_SOURCES.json",
+                 "report_assets/viewer/comparison-view.js", "report_assets/viewer/mesh-validation.js",
+                 "report_assets/viewer/preview-geometry-worker.js", "report_assets/vendor/three.module.js",
+                 "report_assets/licenses/CADViewer-MIT.txt", "report_assets/licenses/Three-MIT.txt"):
+        if (source / name).is_file():
+            names.add(name)
     for folder in ("src", "scheduler", "vendor"):
         if (source / folder).is_dir():
             names.update(p.relative_to(source).as_posix() for p in (source / folder).rglob("*")
@@ -912,6 +918,14 @@ Fusion开始时无文档，只操作自己新建的设计。完成后导出非�
         if self.state.get("error"):
             lines.extend(["", "停止原因：" + self.state["error"]])
         (self.run / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # HTML is a private display artifact, never part of score publication.
+        if getattr(self, 'private', None) is not None:
+            try:
+                from .reporting import build_private_report
+                self.html_report_result = build_private_report(self.private, self.state,
+                                                               config=getattr(self, 'config', {}))
+            except Exception:
+                self.html_report_result = {'status': 'failed'}
 
     def check_cancel(self):
         if self.config.get("cancel_file") and Path(self.config["cancel_file"]).exists():

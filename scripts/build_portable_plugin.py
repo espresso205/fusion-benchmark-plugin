@@ -21,13 +21,20 @@ import zipfile
 
 
 REQUIRED_SOURCE_FILES = (
-    "README.md", "AGENTS.md", "VERSION", "SCORING_SOURCE_MANIFEST.json",
+    "README.md", "AGENTS.md", "VERSION", "SCORING_SOURCE_MANIFEST.json", "THIRD_PARTY_NOTICES.md",
     "docs/ARCHITECTURE.md", "docs/BUILD.md", "docs/DEPENDENCIES.md",
     "agent/fusion-modeling/SKILL.md", "examples/fusion_pipeline_config.json",
     "scripts/create_config.py",
     "analyze_ablation.py", "analysis/__init__.py", "analysis/result_reader.py",
     "analysis/statistics.py", "analysis/ablation.py", "analysis/reporting.py",
     "analysis/system_comparison.py", "docs/ABLATION.md",
+    "docs/HTML_REPORT.md", "render_report.py", "serve_report.py", "src/report_data.py", "src/html_reporting.py", "src/report_inputs.py",
+    "src/display_assets.py", "src/display_mesh.py", "src/display_worker.py",
+    "report_assets/report.css", "report_assets/report.js", "report_assets/VIEWER_SOURCES.json",
+    "report_assets/viewer/comparison-view.js", "report_assets/viewer/mesh-validation.js",
+    "report_assets/viewer/preview-geometry-worker.js", "report_assets/vendor/three.module.js",
+    "report_assets/licenses/CADViewer-MIT.txt", "report_assets/licenses/Three-MIT.txt",
+    "fusion_pipeline/reporting.py",
     "evaluate.py", "worker.py", "weights.json", "weights_v3.json",
     "evaluate_v4.py", "worker_v4.py", "weights_v4.json", "docs/SCORING_V4.md",
     "src/contract_v4.py", "src/geometry_v4.py", "src/reporting_v4.py",

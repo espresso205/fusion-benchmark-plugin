@@ -163,6 +163,13 @@ def main(argv=None):
     atomic_write_json(output/'summary.json',summary)
     from src.reporting_v4 import report
     report(output,manifest,summary)
+    # Presentation is built only after the final scoring evidence is persisted.
+    # An unavailable renderer must not change the evaluator's result or exit code.
+    try:
+        from src.html_reporting import try_build_report
+        try_build_report(output,output/'html-report',timeout=10.0)
+    except Exception as exc:
+        print('HTML report unavailable:',type(exc).__name__,file=sys.stderr,flush=True)
     print('Output:',output,'wall_s:',summary['wall_s'],flush=True)
     return 0 if participants and unchanged and inputs_unchanged and all(r['status'] in ('ok','scored_with_unavailable_metrics','candidate_invalid')
                 and r.get('execution',{}).get('status')=='completed' for r in results) else 2

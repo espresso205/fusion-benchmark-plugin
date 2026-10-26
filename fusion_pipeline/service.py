@@ -186,7 +186,10 @@ class ManagementService:
                               batch_complete=False if terminal_failure else current.get("batch_complete", False),
                               cases=[{k: r[k] for k in ("case_id", "state", "final_score") if k in r} for r in current.get("cases", [])])
             if name == "results":
-                status["report"] = str(run_path / "report.md")
+                if (run_path / "report.md").is_file():
+                    status["report"] = str(run_path / "report.md")
+                from .reporting import report_references
+                status.update(report_references(Path(self.config["private_runs_root"]) / run_path.name))
                 summary_path = Path(self.config["private_runs_root"]) / run_path.name / "evaluation/summary.json"
                 if summary_path.is_file():
                     summary = json.loads(summary_path.read_text(encoding="utf-8"))

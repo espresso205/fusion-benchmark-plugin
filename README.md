@@ -8,6 +8,7 @@
 - [安装、连接与运行](docs/PORTABLE_PLUGIN_USAGE.md)
 - [v4 评分合同](docs/SCORING_V4.md)；[历史 v3](docs/SCORING_V3.md)
 - [已有结果的指标消融分析](docs/ABLATION.md)
+- [HTML 结果报告与三维对比](docs/HTML_REPORT.md)
 - [维护端技能](agent/fusion-benchmark/SKILL.md) · [候选建模技能](agent/fusion-modeling/SKILL.md)
 - [配置示例](examples/fusion_pipeline_config.json) · [依赖与许可](docs/DEPENDENCIES.md)
 - 独立评测器：[espresso205/fusion-step-evaluator](https://github.com/espresso205/fusion-step-evaluator)
@@ -38,6 +39,10 @@ python -B fusion-benchmark-bootstrap.py ablation --input C:/benchmark/private/ru
 ```
 
 完整便携包用 `fusion-benchmark.cmd ablation` 传入相同参数。分析输出到新目录，保留正式评分和测量缺失语义；分析排名不赋予正式排名资格。多来源、系统比较和输出字段见[分析说明](docs/ABLATION.md)。
+
+v4 流水线自动在维护端 `private_runs_root/<run>/html-report/index.html` 生成 HTML，保留全部题目，并以左侧生成模型、右侧标准答案展示差异、分数和评测分析。已有评分可用 `python -B render_report.py --input <最终结果目录> --output <新报告目录>` 重建；`--analysis <ablation.json>` 加入已有分析，`--no-mesh` 仅生成分数与分析页面。也可通过 `fusion-benchmark.cmd report` 使用相同参数。直接打开 HTML 可离线阅读，`python -B serve_report.py --root <报告目录> --open` 启动本机三维对比。完整流水线重建、单题报告和私有目录约定见 [HTML 说明](docs/HTML_REPORT.md)。
+
+已发布示例：[下载 CADGenBench 18 题重评 HTML 报告](https://github.com/espresso205/fusion-benchmark-plugin/releases/download/html-report-20261026/cadgenbench-v4-html-report-20261026.zip)，包含静态预览、三维对比、各项分数和指标分析。解压后打开 `index.html`；[本次结果与使用说明](docs/HTML_REPORT_RELEASE_20261026.md)。
 
 ## 源码测试
 
