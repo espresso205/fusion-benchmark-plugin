@@ -1,6 +1,10 @@
 # HTML 评测报告
 
-报告按题展示生成模型与标准答案的差异、指标分数和评测分析。对比图及三维分屏均为左侧生成模型、右侧标准答案（GT），双方共用视角和尺度。首页提供批次概况、搜索和筛选，点击题目可查看详细对比。
+报告按题展示生成模型与标准答案的差异、指标分数和评测分析。对比图及三维分屏均为左侧生成模型、右侧标准答案（GT），双方共用视角和尺度。首页提供批次概况、搜索、任务分类、状态筛选和分数排序，点击题目可查看详细对比。
+
+每题包含 ISO、Front、Top、Right 四组静态对照和四组材料叠加图，支持点击放大、左右切换与 Esc 关闭。本机服务提供 CADViewer / Three.js 三维查看，可同步旋转、缩放、平移、切换标准方向、适配视野，以及分别查看两侧模型或差异区域。静态与三维使用一致的 Z-up 方向约定，Top 的屏幕上方是 +Y。
+
+提供经过原始身份校验的生成 STEP、标准答案 STEP 和已有对齐副本下载；批次 ZIP 只含可用的原始生成 STEP，不含 GT 或标注，也不是历史官方提交 ZIP 的复刻。未通过文件身份校验的文件不提供下载。
 
 ## 生成报告
 
@@ -42,6 +46,29 @@ python -B C:/benchmark/reports/new-report/serve_report.py --root C:/benchmark/re
 
 `geometry` 报告可比较原始坐标与评分所用的刚体对齐坐标；`strict` 按原始坐标评分。浏览器不估计对齐、不分别归一化两个模型，也不重新计算分数。显示网格是用于观察的近似，不替代 BRep 或评分证据。预览生成失败时分数仍保留，HTML 生成失败不会改变已完成的评分结果。
 
+默认差异图是**全模型材料差异**：蓝色为候选与 GT 的相交体积，红色为候选多余材料，琥珀色为候选缺少的材料。区域由显示三角网格的实体布尔计算，属于目视诊断，不是新的计分指标。非闭合或不完整网格不能产生可信差异时，只保留普通透明叠加并标明状态。
+
+官方 **Interface overlay** 使用真实 mating jig 的 KOR（应留空）/KIR（应填满）区域。提供以下维护端私有清单后，可通过 `--interfaces` 生成该局部区域图；没有 jig 时不会把全模型差异称为 Interface Match，也不会虚构对应分数。
+
+```powershell
+python -B render_report.py --input C:/benchmark/finished-v4 --interfaces C:/benchmark/private/interfaces.json --output C:/benchmark/reports/with-interfaces
+```
+
+```json
+{
+  "schema_version": "fusion-report-interfaces/1",
+  "cases": [{
+    "case": "101",
+    "gt_sha256": "<与本次评测GT一致的64位SHA256>",
+    "regions": [{"path": "101/jig_1__1__KOR.step", "sha256": "<区域STEP的64位SHA256>", "fit_type": "KOR"}]
+  }]
+}
+```
+
+区域路径相对于清单目录，须保留在该目录内且不能经过链接。清单不能和公开输入混用。显示区域采用官方的验证壳层定义：区域 AABB 外扩 `max(2 mm, 20% × 最长边)`，KOR 的相邻实体应填满，KIR 的相邻空间应留空。仅用已有坐标，不进行新的位姿搜索。三维图和四角度图都保持这个范围；网格近似不构成官方 Interface 分数复现。
+
+单题 `#fixture=<题号>` 链接可直接打开案例；上一题/下一题支持 `j/k` 和左右方向键，Esc 返回列表。放大图片时这些按键只作用于图片。
+
 页面中的分数排序用于浏览题目，不构成模型榜单；`ranking_eligible` 保持 `false`。评分口径详见 [v4 说明](SCORING_V4.md)，消融口径见 [分析说明](ABLATION.md)。CADViewer 与 Three.js 的 MIT 许可随 `report_assets/licenses/` 分发，来源记录见 [VIEWER_SOURCES.json](../report_assets/VIEWER_SOURCES.json)。
 
 ## 不同类型的输入资料
@@ -66,6 +93,8 @@ python -B render_report.py --input C:/benchmark/finished-v4 --inputs C:/benchmar
   "cases": [
     {
       "case": "101",
+      "task_type": "generation",
+      "prompt": "根据图纸重建零件。",
       "assets": [
         {
           "label": "零件图",
@@ -86,3 +115,7 @@ python -B render_report.py --input C:/benchmark/finished-v4 --inputs C:/benchmar
 只将明确公开给建模方的输入列入清单。路径相对于清单所在文件夹，须留在该文件夹内；拒绝绝对路径、父目录跳转及链接目录。报告复制已验证的资料到自己的 `inputs/`，移动报告后仍可读取。清单只描述输入，不能代替评测证据，也不能引入或改写分数。
 
 Python 接口 `build_report(..., inputs=manifest_path)` 与插件 `build_private_report(..., inputs=manifest_path)` 使用同一契约。后续建模输入扩展只需把公开输入映射到此清单；本次兼容性覆盖报告展示，当前建模流水线的 PDF/多图读取能力另行扩展。
+
+可选 `task_type` 为 `generation`、`editing` 或 `unknown`，`prompt` 为纯文本。没有标注时保持未标注，不从题号推断类型；分类均分只统计该类型中参与 v4 评分的案例，包含缺测下界。编辑类图片或 WebP 可用 `purpose` 指定 `original`、`edit_target`、`edit_output`，按资料列表展示；已有结果未提供的编辑步骤/动画不会自动补造。
+
+Python 接口另支持 `interfaces=private_manifest_path`。插件维护端配置可通过 `report_inputs` 和 `report_interfaces` 指向相应清单；它们只交给收尾报告生成器，不进入候选工具的输入集合。便携报告仍不需要联网或 CDN。

@@ -12,8 +12,8 @@ export function validateMesh(mesh) {
 
 export function commonOrigin(meshes) {
   const minimum=[Infinity,Infinity,Infinity],maximum=[-Infinity,-Infinity,-Infinity];
-  for(const role of ['reference','candidate']) {
-    const mesh=meshes?.[role];if(!mesh)continue;
+  for(const mesh of Object.values(meshes||{})) {
+    if(!mesh)continue;
     for(let i=0;i<mesh.vertices.length;i++) {
       const axis=i%3,value=mesh.vertices[i];
       minimum[axis]=Math.min(minimum[axis],value);maximum[axis]=Math.max(maximum[axis],value);

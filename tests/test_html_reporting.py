@@ -1,5 +1,6 @@
 """Consumer-visible HTML contract: inert data, complete fallback, faithful credit."""
 import json
+import copy
 from html.parser import HTMLParser
 from pathlib import Path
 import tempfile
@@ -8,10 +9,11 @@ import unittest
 
 class Page(HTMLParser):
     def __init__(self, text):
-        super().__init__(); self.scripts=[]; self.data=[]; self.text=[]; self.in_data=False
+        super().__init__(); self.scripts=[]; self.data=[]; self.text=[]; self.tags=[]; self.in_data=False
         self.feed(text)
     def handle_starttag(self, tag, attrs):
         attrs=dict(attrs)
+        self.tags.append((tag, attrs))
         if tag=='script':
             self.scripts.append(attrs)
             self.in_data=attrs.get('id')=='report-data'
@@ -43,6 +45,139 @@ def public_report():
 
 
 class HtmlTests(unittest.TestCase):
+    def test_score_colors_use_reference_cutoffs_without_grading_lower_bounds(self):
+        from src.html_reporting import render_html
+        data = public_report()
+        template = data['cases'][0]
+        variants = [(1., 'measured', 'high'), (.9, 'measured', 'high'),
+                    (.89999, 'measured', 'middle'), (.6, 'measured', 'middle'),
+                    (.59999, 'measured', 'low'), (0., 'measured', 'low'),
+                    (.95, 'policy_lower_bound', 'lower_bound'), (None, 'unscored', 'unavailable')]
+        data['cases'] = []
+        for index, (value, kind, _) in enumerate(variants):
+            row = copy.deepcopy(template)
+            row.update(case=f'case-{index}', final_score=value, score_kind=kind,
+                       participates_in_scoring=value is not None)
+            data['cases'].append(row)
+        before = copy.deepcopy(data)
+        page = Page(render_html(data))
+        badges = [attrs for tag, attrs in page.tags if tag == 'strong' and 'data-score-band' in attrs]
+        self.assertEqual(len(badges), len(variants) * 2)
+        self.assertEqual([badge['data-score-band'] for badge in badges[:len(variants)]], [band for _, _, band in variants])
+        text = ' '.join(page.text)
+        for label in ('≥ 90', '60–<90', '< 60', '仅为展示区间', '缺测下界与无分数不分档'):
+            self.assertIn(label, text)
+        self.assertEqual(data, before)
+        self.assertEqual(json.loads(''.join(page.data)), before)
+
+    def test_static_detail_navigation_includes_position_between_buttons(self):
+        from src.html_reporting import render_html
+        data = public_report()
+        row = copy.deepcopy(data['cases'][0]); row['case'] = 'Q2'; data['cases'].append(row)
+        html = render_html(data)
+        positions = [attrs for tag, attrs in Page(html).tags if attrs.get('class') == 'detail-position']
+        self.assertEqual(len(positions), 2)
+        self.assertIn('>1 / 2</span><button data-step="1">', html)
+        self.assertIn('>2 / 2</span><button data-step="1">', html)
+
+    def test_four_views_are_readable_without_javascript_and_open_full_images(self):
+        from src.html_reporting import render_html
+        data = public_report()
+        previews = {angle: {kind: f'display/0/{angle}-{kind}.png' for kind in ('split', 'overlay')}
+                    for angle in ('iso', 'front', 'top', 'right')}
+        data['cases'][0]['display'] = {'views': {'scoring': {
+            'previews': previews, 'difference': {'status': 'ok', 'scope': 'whole_model', 'layers': {}}}}}
+        before = copy.deepcopy(data)
+        page = Page(render_html(data))
+        links = [a for tag, a in page.tags if tag == 'a' and 'data-lightbox' in a]
+        for angle in previews:
+            for kind in ('split', 'overlay'):
+                self.assertTrue(any(a['href'] == previews[angle][kind] for a in links))
+        text = ' '.join(page.text)
+        for value in ('四视角对比', '全模型差异', '匹配', '多余', '缺失', '透明叠加', '差异着色'):
+            self.assertIn(value, text)
+        self.assertNotIn('Interface Match', text)
+        self.assertEqual(data, before)
+        self.assertEqual(json.loads(''.join(page.data)), before)
+
+    def test_difference_scope_and_missing_views_are_not_fabricated(self):
+        from src.html_reporting import render_html
+        data = public_report()
+        data['cases'][0]['display'] = {'views': {'scoring': {
+            'thumbnail': 'display/0/legacy.svg',
+            'previews': {'front': {'split': 'display/0/front.png'}},
+            'difference': {'status': 'unavailable', 'scope': 'whole_model', 'layers': {}, 'reason': 'jig unavailable'}}}}
+        html = render_html(data)
+        self.assertIn('此视角暂不可用', html)
+        self.assertNotIn('Interface Match', ' '.join(Page(html).text))
+        self.assertIn('差异图暂不可用', html)
+        data['cases'][0]['display']['views']['scoring']['difference'] = {'status': 'ok', 'scope': 'interface', 'layers': {}}
+        self.assertIn('Interface 区域差异', render_html(data))
+
+    def test_explicit_tasks_use_participant_denominators_and_metadata_is_escaped(self):
+        from src.html_reporting import render_html
+        data = public_report()
+        original = data['cases'][0]
+        original.update(task_type='generation', final_score=.5, prompt='<img onerror=x> 建模')
+        omitted = copy.deepcopy(original)
+        omitted.update(case='0061', final_score=None, participates_in_scoring=False, task_type='generation')
+        unknown = copy.deepcopy(original)
+        unknown.update(case='0062', task_type='unexpected', final_score=1)
+        data['cases'] += [omitted, unknown]
+        page = Page(render_html(data))
+        summaries = [a for tag, a in page.tags if a.get('class') == 'task-summary-item']
+        self.assertTrue(summaries, 'Explicit task groups must have participant-based summaries')
+        generation = next(a for a in summaries if a['data-task'] == 'generation')
+        self.assertEqual(generation['data-participants'], '1')
+        self.assertEqual(generation['data-total'], '2')
+        self.assertEqual(generation['data-mean'], '50.000')
+        cards = [a for tag, a in page.tags if a.get('class') == 'case-card']
+        self.assertEqual(cards[-1]['data-task'], 'unknown')
+        self.assertEqual(cards[-1]['href'], '#fixture=0062')
+        self.assertNotIn('<img onerror=x>', render_html(data))
+        self.assertTrue(any(tag == 'select' and a.get('id') == 'task-filter' for tag, a in page.tags))
+
+    def test_download_hooks_and_input_enlargement_keep_safe_relative_urls(self):
+        from src.html_reporting import render_html
+        data = public_report()
+        row = data['cases'][0]
+        row['downloads'] = {'candidate': {'url': 'downloads/0/candidate.step', 'label': '生成 STEP'},
+                            'reference': {'url': 'https://invalid.test/gt.step', 'label': '外部'}}
+        data['downloads'] = {'submission_zip': {'url': 'downloads/submission.zip', 'label': '下载提交 ZIP'}}
+        row['input_materials'] = {'items': [{'label': '编辑前', 'kind': 'image', 'purpose': 'before',
+                                           'url': 'inputs/0/before.gif', 'status': 'completed'}]}
+        page = Page(render_html(data))
+        anchors = [a for tag, a in page.tags if tag == 'a']
+        for url in ('downloads/0/candidate.step', 'downloads/submission.zip'):
+            self.assertTrue(any(a.get('href') == url and 'download' in a for a in anchors))
+        self.assertFalse(any(a.get('href', '').startswith('https:') for a in anchors))
+        self.assertTrue(any(a.get('href') == 'inputs/0/before.gif' and 'data-lightbox' in a for a in anchors))
+
+    def test_validation_health_only_uses_existing_raw_evidence(self):
+        from src.html_reporting import render_html
+        data = public_report()
+        self.assertNotIn('实体闭合', render_html(data))
+        data['cases'][0]['metrics']['validity'] = {'raw': {'candidate': {
+            'healthy': True, 'brep_valid': True,
+            'solids': [{'closed': True, 'bbox_mm': [0, -2, 1, 12, 18, 31]}]}}}
+        text = ' '.join(Page(render_html(data)).text)
+        for value in ('实体闭合', '12 × 20 × 30', '原坐标', '几何验证通过'):
+            self.assertIn(value, text)
+        data['cases'][0]['metrics']['validity']['raw']['candidate']['healthy'] = False
+        self.assertNotIn('几何验证通过', ' '.join(Page(render_html(data)).text))
+
+    def test_ordinary_overlay_fallback_is_not_labeled_as_difference(self):
+        from src.html_reporting import render_html
+        data = public_report()
+        data['cases'][0]['display'] = {'views': {'scoring': {
+            'previews': {'iso': {'overlay': 'previews/ordinary.svg'}},
+            'difference': {'status': 'ok', 'scope': 'interface', 'layers': {}},
+            'metadata': {'preview': {'overlay_kind': 'difference', 'overlay_fallback': 'ordinary_overlay'}}}}}
+        page = Page(render_html(data))
+        link = next(a for tag, a in page.tags if tag == 'a' and a.get('href') == 'previews/ordinary.svg')
+        self.assertIn('透明叠加', link['data-caption'])
+        self.assertNotIn('Interface', link['data-caption'])
+
     def test_script_termination_is_inert_and_round_trips(self):
         from src.html_reporting import render_html
         data=public_report(); data['run_name']='</script><script>alert(1)</script>&中文'

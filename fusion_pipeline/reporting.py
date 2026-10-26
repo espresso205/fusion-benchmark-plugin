@@ -48,7 +48,7 @@ def report_references(private_root):
     return result
 
 
-def build_private_report(private_root, pipeline, *, config=None, timeout=10.0, inputs=None):
+def build_private_report(private_root, pipeline, *, config=None, timeout=10.0, inputs=None, interfaces=None):
     """Generate from all requested cases; ordinary failures never escape."""
     config = config or {}
     protocol = pipeline.get('scoring_protocol') or config.get('protocol', V4_PROTOCOL)
@@ -67,7 +67,11 @@ def build_private_report(private_root, pipeline, *, config=None, timeout=10.0, i
         merged = dict(pipeline, scoring_protocol=protocol,
                       coordinate_mode=pipeline.get('coordinate_mode') or config.get('coordinate_mode', 'geometry'))
         source = root / 'evaluation' if (root / 'evaluation/summary.json').is_file() else None
+        inputs = inputs if inputs is not None else config.get('report_inputs')
+        interfaces = interfaces if interfaces is not None else config.get('report_interfaces')
         options = {'inputs': inputs} if inputs is not None else {}
+        if interfaces is not None:
+            options['interfaces'] = interfaces
         result = try_build_report(source, root / 'html-report', pipeline=merged,
                                   timeout=timeout, run_name=pipeline.get('run_id', root.name), **options)
         if not isinstance(result, dict) or result.get('status') not in ('completed', 'partial', 'failed'):

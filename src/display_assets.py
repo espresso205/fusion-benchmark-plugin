@@ -15,8 +15,10 @@ import sys
 import tempfile
 
 
-GENERATOR_VERSION = 'fusion-display/2'
+GENERATOR_VERSION = 'fusion-display/3'
 SVG_TRIANGLE_LIMIT = 2000
+VIEW_DIRECTIONS = {'iso': (1, -1, 1), 'front': (0, -1, 0),
+                   'top': (0, 0, 1), 'right': (1, 0, 0)}
 QUALITY_KEYS = ('sourceTriangleCount', 'renderTriangleCount', 'topologySimplified',
                 'truncated', 'displayVersion', 'faceCount', 'missingFaceCount',
                 'linearDeflectionMm', 'approximation', 'coordinateDecimals')
@@ -29,7 +31,7 @@ def _sha256(path):
 
 def dependency_versions():
     versions = {'python': sys.version.split()[0]}
-    for name in ('cadquery-ocp', 'numpy', 'vtk'):
+    for name in ('cadquery-ocp', 'numpy', 'vtk', 'manifold3d'):
         try:
             versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
@@ -41,7 +43,8 @@ def generator_fingerprint():
     root = Path(__file__).parent
     return {'version': GENERATOR_VERSION, 'dependencies': dependency_versions(),
             'sources': {name: _sha256(root / name) for name in
-                        ('display_mesh.py', 'display_worker.py', 'display_assets.py')}}
+                        ('display_mesh.py', 'display_worker.py', 'display_assets.py',
+                         'display_comparison.py')}}
 
 
 def validate_mesh(mesh):
@@ -84,86 +87,156 @@ def _run_worker(source, destination, *, expected_hash, coordinate_frame, timeout
     return result
 
 
-def _run_preview(mesh_paths, destination, *, timeout):
+def preview_paths(destination):
+    destination = Path(destination)
+    return {angle: {mode: (destination if (angle, mode) == ('iso', 'split') else
+            destination.with_name(f'{destination.stem}-{angle}-{mode}{destination.suffix}'))
+            for mode in ('split', 'overlay')} for angle in VIEW_DIRECTIONS}
+
+
+def _run_preview(mesh_paths, destination, *, timeout, layer_paths=None):
     destination = Path(destination)
     with tempfile.TemporaryDirectory(prefix='fusion-preview-') as temporary:
         request = Path(temporary) / 'request.json'
         metadata_path = Path(temporary) / 'metadata.json'
         request.write_text(json.dumps({'operation': 'preview', 'meshes': {
             role: str(path) for role, path in mesh_paths.items()},
+            'layers': {role: str(path) for role, path in (layer_paths or {}).items()},
             'destination': str(destination), 'metadata_path': str(metadata_path)}), encoding='utf-8')
         result = _run_process([sys.executable, '-B', str(Path(__file__).with_name('display_worker.py')),
                                str(request)], timeout)
-        if result['status'] == 'completed':
+        previews, valid = {}, 0
+        for angle, modes in preview_paths(destination).items():
+            previews[angle] = {}
+            for mode, path in modes.items():
+                try:
+                    with path.open('rb') as stream:
+                        if stream.read(8) != b'\x89PNG\r\n\x1a\n':
+                            raise ValueError('invalid_png')
+                    previews[angle][mode] = path; valid += 1
+                except (OSError, ValueError):
+                    previews[angle][mode] = None; path.unlink(missing_ok=True)
+                path.with_suffix('.tmp').unlink(missing_ok=True)
+        metadata = {}
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
+            if valid == 8 and result['status'] == 'completed':
+                return {'status': 'completed', 'metadata': metadata, 'previews': previews}
+        except (OSError, ValueError):
+            pass
+        return {'status': 'partial' if valid else 'failed', 'metadata': metadata, 'previews': previews,
+                'error': result.get('error', 'preview_invalid').replace('mesh_', 'preview_')}
+
+
+def _run_difference(mesh_paths, destination, *, timeout, interface=None, reference_hash=None):
+    if __package__:
+        from .display_comparison import unavailable
+    else:
+        from display_comparison import unavailable
+    scope = 'interface' if interface is not None else 'whole_model'
+    destination = Path(destination)
+    paths = {key: destination.with_name(destination.name+'-'+key+'.json')
+             for key in ('matched', 'extra', 'missing')}
+    with tempfile.TemporaryDirectory(prefix='fusion-difference-') as temporary:
+        request, metadata_path = Path(temporary)/'request.json', Path(temporary)/'metadata.json'
+        request.write_text(json.dumps({'operation': 'difference',
+            'meshes': {role: str(path) for role, path in mesh_paths.items()},
+            'destinations': {role: str(path) for role, path in paths.items()},
+            'interface': interface, 'reference_hash': reference_hash,
+            'metadata_path': str(metadata_path)}), encoding='utf-8')
+        process = _run_process([sys.executable, '-B', str(Path(__file__).with_name('display_worker.py')),
+                                str(request)], timeout)
+        result = unavailable(scope, process.get('error', 'difference_invalid').replace('mesh_', 'difference_'))
+        if process['status'] == 'completed':
             try:
-                with destination.open('rb') as stream:
-                    if stream.read(8) != b'\x89PNG\r\n\x1a\n':
-                        raise ValueError('invalid_png')
-                return {'status': 'completed', 'metadata': json.loads(metadata_path.read_text(encoding='utf-8'))}
-            except (OSError, ValueError):
-                result = {'status': 'failed', 'error': 'preview_invalid'}
-        destination.unlink(missing_ok=True)
-        destination.with_suffix('.tmp').unlink(missing_ok=True)
-        return {'status': 'failed', 'error': result.get('error', 'preview_failed').replace('mesh_', 'preview_')}
+                metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
+                if metadata['status'] == 'completed' and metadata['scope'] == scope:
+                    layers = {}
+                    for key, path in paths.items():
+                        if metadata['layers'].get(key):
+                            validate_mesh(json.loads(path.read_text(encoding='utf-8')))
+                            layers[key] = path
+                        else:
+                            layers[key] = None
+                    return {'status': 'completed', 'scope': scope, 'layers': layers}
+                reason = metadata.get('reason', 'difference_unavailable')
+                if isinstance(reason, str) and re.fullmatch(r'(?:difference|interface)_[a-z_]{1,64}', reason):
+                    result = unavailable(scope, reason)
+            except (OSError, KeyError, ValueError, TypeError):
+                pass
+        for path in paths.values():
+            path.unlink(missing_ok=True); path.with_suffix('.tmp').unlink(missing_ok=True)
+        return result
 
 
-def preview_camera(meshes, width=960, height=360):
+def preview_camera(meshes, width=960, height=360, *, angle='iso'):
     """One orthographic camera for both panels; retains size and displacement."""
     minimum = [min(min(mesh['vertices'][axis::3]) for mesh in meshes.values()) for axis in range(3)]
     maximum = [max(max(mesh['vertices'][axis::3]) for mesh in meshes.values()) for axis in range(3)]
     size = [maximum[axis]-minimum[axis] for axis in range(3)]
     diagonal = math.sqrt(sum(value*value for value in size))
-    return {'projection': 'orthographic', 'view': 'iso',
+    return {'projection': 'orthographic', 'view': angle,
+            'direction': list(VIEW_DIRECTIONS[angle]),
+            'up': [0, 1, 0] if angle == 'top' else [0, 0, 1],
             'origin_mm': [minimum[axis]+size[axis]/2 for axis in range(3)],
             'bounds_mm': {'minimum': minimum, 'maximum': maximum},
             'parallel_scale_mm': max(.01, diagonal/2)*1.15*max(1, height/(width/2)),
             'distance_mm': max(1, diagonal*2)}
 
 
-def svg_preview(meshes, width=960, height=360):
+def svg_preview(meshes, width=960, height=360, *, angle='iso', mode='split', layers=None):
     """Orthographic isometric preview with one common origin, scale and camera.
 
     All triangles are kept. A depth sort is a display approximation; the SVG is
     explicitly labeled as such and is not a geometry measurement.
     """
-    if sum(len(mesh['indices'])//3 for mesh in meshes.values()) > SVG_TRIANGLE_LIMIT:
+    visible = (dict(layers or {}) if layers and mode == 'overlay' else dict(meshes))
+    if layers and mode == 'overlay' and 'candidate' in meshes:
+        visible['context'] = meshes['candidate']
+    if sum(len(mesh['indices'])//3 for mesh in visible.values()) > SVG_TRIANGLE_LIMIT:
         raise ValueError('preview_too_dense_for_svg')
+    settings = preview_camera(meshes, width, height, angle=angle)
+    direction, up = settings['direction'], settings['up']
+    norm = math.sqrt(sum(v*v for v in direction))
+    depth = [v/norm for v in direction]
+    right = [up[1]*depth[2]-up[2]*depth[1], up[2]*depth[0]-up[0]*depth[2],
+             up[0]*depth[1]-up[1]*depth[0]]
+    norm = math.sqrt(sum(v*v for v in right)); right = [v/norm for v in right]
+    screen_up = [depth[1]*right[2]-depth[2]*right[1], depth[2]*right[0]-depth[0]*right[2],
+                 depth[0]*right[1]-depth[1]*right[0]]
     projected = {}
-    for role in ('reference', 'candidate'):
-        if role not in meshes:
-            continue
-        mesh = meshes[role]; validate_mesh(mesh)
+    for role, mesh in visible.items():
+        validate_mesh(mesh)
         vertices = mesh['vertices']
-        projected[role] = [( (vertices[i] - vertices[i+1]) / math.sqrt(2),
-                            (vertices[i] + vertices[i+1] - 2*vertices[i+2]) / math.sqrt(6),
-                            (vertices[i] + vertices[i+1] + vertices[i+2]) / math.sqrt(3))
-                           for i in range(0, len(vertices), 3)]
-    all_points = [point for points in projected.values() for point in points]
-    if not all_points:
-        raise ValueError('empty_preview')
-    xmin, xmax = min(p[0] for p in all_points), max(p[0] for p in all_points)
-    ymin, ymax = min(p[1] for p in all_points), max(p[1] for p in all_points)
-    scale = min((width/2-48)/max(xmax-xmin, 1e-9), (height-64)/max(ymax-ymin, 1e-9))
-    cx, cy = (xmin+xmax)/2, (ymin+ymax)/2
+        points = [[vertices[i+axis]-settings['origin_mm'][axis] for axis in range(3)]
+                  for i in range(0, len(vertices), 3)]
+        projected[role] = [(sum(a*b for a,b in zip(point, right)),
+                            -sum(a*b for a,b in zip(point, screen_up)),
+                            sum(a*b for a,b in zip(point, depth))) for point in points]
+    scale = height / (2*settings['parallel_scale_mm'])
     polygons = []
     for role, points in projected.items():
-        indices = meshes[role]['indices']
+        indices = visible[role]['indices']
         for offset in range(0, len(indices), 3):
             triangle = [points[index] for index in indices[offset:offset+3]]
-            panel_center = width/4 if role == 'candidate' else 3*width/4
-            xy = ' '.join(f'{(p[0]-cx)*scale+panel_center:.4f},{(p[1]-cy)*scale+height/2-10:.4f}' for p in triangle)
-            color = '#258cba' if role == 'reference' else '#ec8a32'
+            panel_center = (width/4 if role == 'candidate' else 3*width/4) if mode == 'split' else width/2
+            xy = ' '.join(f'{p[0]*scale+panel_center:.4f},{p[1]*scale+height/2:.4f}' for p in triangle)
+            color = {'reference': '#258cba', 'candidate': '#ec8a32', 'matched': '#258cba',
+                     'extra': '#dc3c3c', 'missing': '#e5aa22', 'context': '#8e949b'}[role]
+            opacity = ({'context': '.12', 'matched': '.3', 'extra': '.85', 'missing': '.85'}.get(role, '.5')
+                       if mode == 'overlay' else '1')
             polygons.append((sum(p[2] for p in triangle),
-                f'<polygon data-role="{role}" points="{xy}" fill="{color}" fill-opacity="0.64" stroke="{color}" stroke-width="0.25"/>'))
+                f'<polygon data-role="{role}" points="{xy}" fill="{color}" fill-opacity="{opacity}" stroke="{color}" stroke-width="0.25"/>'))
     polygons.sort(key=lambda item: item[0])
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" role="img" '
-            'aria-label="左侧橙色生成模型，右侧蓝色标准答案，共享坐标与比例">'
+            f'aria-label="{angle} {mode}：共享坐标与比例的网格近似预览">'
             '<rect width="100%" height="100%" fill="#ffffff"/>' +
             ''.join(item[1] for item in polygons) +
             '</svg>')
 
 
-def build_display_assets(model_sources, output, *, timeout=60.0, workers=2):
+def build_display_assets(model_sources, output, *, timeout=60.0, workers=2, interfaces=None):
+    from .display_comparison import unavailable
     output = Path(output).resolve()
     (output / 'meshes').mkdir(parents=True, exist_ok=True)
     (output / 'previews').mkdir(parents=True, exist_ok=True)
@@ -232,7 +305,11 @@ def build_display_assets(model_sources, output, *, timeout=60.0, workers=2):
         views = {}
         for view in ('world', 'scoring'):
             row = {'status': 'unavailable', 'reference': None, 'candidate': None,
-                   'thumbnail': None, 'metadata': {'units': 'mm', 'coordinate_frame': view,
+                   'thumbnail': None, 'previews': {angle: {'split': None, 'overlay': None}
+                       for angle in VIEW_DIRECTIONS},
+                   'difference': unavailable('interface' if case in (interfaces or {}) else 'whole_model',
+                                             'difference_requires_both_models'),
+                   'metadata': {'units': 'mm', 'coordinate_frame': view,
                    'source_hashes': {}, 'frames': {}, 'quality': {}, 'role_errors': {},
                    'generator': fingerprint}, 'error': None}
             meshes = {}
@@ -257,27 +334,70 @@ def build_display_assets(model_sources, output, *, timeout=60.0, workers=2):
                     all(mesh.get('missingFaceCount', 0) == 0 for mesh in meshes.values()) else 'partial')
                 filename = hashlib.sha256(str(case).encode('utf-8')).hexdigest()[:24] + '-' + view + '.png'
                 preview = output / 'previews' / filename
+                interface = (interfaces or {}).get(case)
+                layer_paths, layer_meshes = {}, {}
+                if interface is not None and interface.get('error'):
+                    reason = interface['error'] if interface['error'] in (
+                        'interface_input_unavailable', 'interface_reference_mismatch') else 'interface_input_unavailable'
+                    row['difference'] = unavailable('interface', reason)
+                elif interface is not None and interface.get('gt_sha256') != row['metadata']['source_hashes'].get('reference'):
+                    row['difference'] = unavailable('interface', 'interface_reference_mismatch')
+                elif len(meshes) == 2:
+                    try:
+                        difference = _run_difference({role: output / row[role] for role in meshes},
+                            output / 'meshes' / preview.stem, timeout=timeout, interface=interface,
+                            reference_hash=row['metadata']['source_hashes'].get('reference'))
+                        row['difference'] = {**difference, 'layers': {key: path.relative_to(output).as_posix()
+                            if path else None for key, path in difference['layers'].items()}}
+                        layer_paths = {key: path for key, path in difference['layers'].items() if path}
+                        layer_meshes = {key: json.loads(path.read_text(encoding='utf-8')) for key, path in layer_paths.items()}
+                    except Exception:
+                        row['difference'] = unavailable('interface' if interface is not None else 'whole_model',
+                                                         'difference_worker_unavailable')
                 try:
                     preview_result = _run_preview({role: output / row[role] for role in meshes},
-                                                  preview, timeout=timeout)
+                                                  preview, timeout=timeout, layer_paths=layer_paths)
                 except Exception:
                     preview_result = {'status': 'failed', 'error': 'preview_worker_unavailable'}
                 preview_meta = {'status': preview_result['status'], 'format': None,
                     'panels': ['candidate', 'reference'], 'shared_camera': True,
+                    'overlay_kind': 'difference' if layer_paths else 'ordinary_overlay',
                     'legend': {'candidate': '生成模型（橙色，左）', 'reference': '标准答案（蓝色，右）'}}
+                for angle, modes in preview_result.get('previews', {}).items():
+                    for mode, path in modes.items():
+                        if path:
+                            row['previews'][angle][mode] = path.relative_to(output).as_posix()
                 if preview_result['status'] == 'completed':
-                    row['thumbnail'] = preview.relative_to(output).as_posix()
+                    row['previews'] = {angle: {mode: path.relative_to(output).as_posix()
+                        for mode, path in modes.items()} for angle, modes in preview_paths(preview).items()}
                     preview_meta.update(preview_result['metadata'])
                     preview_meta['format'] = 'png'
                 elif sum(len(mesh['indices'])//3 for mesh in meshes.values()) <= SVG_TRIANGLE_LIMIT:
-                    preview = preview.with_suffix('.svg')
-                    preview.write_text(svg_preview(meshes), encoding='utf-8')
-                    row['thumbnail'] = preview.relative_to(output).as_posix()
-                    preview_meta.update({'status': 'fallback', 'format': 'svg',
+                    for angle, modes in preview_paths(preview.with_suffix('.svg')).items():
+                        for mode, path in modes.items():
+                            if row['previews'][angle][mode]:
+                                continue
+                            try:
+                                path.write_text(svg_preview(meshes, angle=angle, mode=mode,
+                                                           layers=layer_meshes), encoding='utf-8')
+                                row['previews'][angle][mode] = path.relative_to(output).as_posix()
+                            except ValueError:
+                                # Dense Boolean layers may still have a small ordinary overlay.
+                                path.write_text(svg_preview(meshes, angle=angle, mode=mode), encoding='utf-8')
+                                row['previews'][angle][mode] = path.relative_to(output).as_posix()
+                                preview_meta['overlay_fallback'] = 'ordinary_overlay'
+                                preview_meta['overlay_kind'] = 'ordinary_overlay'
+                    preview_meta.update({'status': 'fallback', 'format': 'mixed' if preview_result['status'] == 'partial' else 'svg',
                                          'error': preview_result['error']})
                 else:
                     preview_meta['error'] = preview_result['error']
+                    if preview_result['status'] == 'partial':
+                        preview_meta['format'] = 'png'
                     row['status'] = 'partial'
+                row['thumbnail'] = row['previews']['iso']['split']
+                preview_meta.setdefault('camera', preview_camera(meshes))
+                preview_meta.setdefault('cameras', {angle: preview_camera(meshes, angle=angle)
+                                                    for angle in VIEW_DIRECTIONS})
                 row['metadata']['preview'] = preview_meta
             if row['status'] != 'completed':
                 row['error'] = ('preview_incomplete' if meshes else 'display_unavailable')

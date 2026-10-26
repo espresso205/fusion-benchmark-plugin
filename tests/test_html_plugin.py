@@ -165,7 +165,8 @@ class HtmlPluginTests(unittest.TestCase):
     def test_portable_plan_includes_report_runtime_and_private_adapter(self):
         required = set(build_portable_plugin.REQUIRED_SOURCE_FILES)
         self.assertTrue({'render_report.py', 'serve_report.py', 'src/report_data.py',
-            'src/html_reporting.py', 'src/report_inputs.py', 'src/display_assets.py', 'src/display_mesh.py',
+            'src/html_reporting.py', 'src/report_inputs.py', 'src/report_interfaces.py', 'src/report_downloads.py',
+            'src/display_comparison.py', 'src/display_assets.py', 'src/display_mesh.py',
             'src/display_worker.py', 'fusion_pipeline/reporting.py',
             'report_assets/report.css', 'report_assets/report.js',
             'report_assets/VIEWER_SOURCES.json', 'report_assets/viewer/comparison-view.js',

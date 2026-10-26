@@ -98,11 +98,21 @@ def _load_manifest(manifest):
             raise ValueError('附件清单不能重复指定同一案例。')
         if not isinstance(assets, list):
             raise ValueError('案例附件必须是列表。')
+        task_type = entry.get('task_type')
+        if task_type is not None and task_type not in ('generation', 'editing', 'unknown'):
+            raise ValueError('任务类型必须为 generation、editing 或 unknown。')
+        prompt = entry.get('prompt')
+        if prompt is not None and (not isinstance(prompt, str) or len(prompt) > 16000 or
+                any(ord(character) < 32 and character not in '\n\r\t' for character in prompt)):
+            raise ValueError('题目描述必须是最多 16000 字的纯文本。')
         for specification in assets:
             count += _validate_file(specification)
+            if specification.get('purpose') not in (None, 'input', 'original', 'edit_target', 'edit_output'):
+                raise ValueError('资料用途不受支持。')
             if count > MAX_FILES:
                 raise ValueError('附件和预览数量超过限制。')
-        cases[case_id] = assets
+        cases[case_id] = {'assets': assets, **({'task_type': task_type} if task_type is not None else {}),
+                         **({'prompt': prompt} if prompt is not None else {})}
     return path.parent, cases
 
 
@@ -232,8 +242,11 @@ def build_input_assets(manifest, output, case_ids):
     output = _no_links(Path(output), allow_missing=True)
     results, total = {}, 0
     for case_id in requested:
-        assets = cases.get(case_id)
-        if not assets:
+        entry = cases.get(case_id)
+        if not entry:
+            continue
+        assets = entry['assets']
+        if not assets and not any(key in entry for key in ('task_type', 'prompt')):
             continue
         case_index = len(results)
         file_index, items = 0, []
@@ -243,6 +256,8 @@ def build_input_assets(manifest, output, case_ids):
             file_index += 1
             total += size
             item['label'] = _label(specification.get('label'), f'资料 {asset_index + 1}')
+            if specification.get('purpose') is not None:
+                item['purpose'] = specification['purpose']
             item['previews'] = []
             for page_index, page in enumerate(specification.get('previews', [])):
                 preview, size = _copy_file(page, root, output,
@@ -257,4 +272,5 @@ def build_input_assets(manifest, output, case_ids):
                 item['message'] = '部分预览不可用。'
             items.append(item)
         results[case_id] = {'status': _status([item['status'] for item in items]), 'items': items}
+        results[case_id].update({key: entry[key] for key in ('task_type', 'prompt') if key in entry})
     return results

@@ -84,6 +84,84 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(failure['error'], 'mesh_failed')
         self.assertNotIn('private', json.dumps(failure))
 
+    def test_four_cameras_share_origin_scale_and_expected_projection(self):
+        api = self.api()
+        mesh = {'vertices': [0, 0, 0, 4, 0, 0, 0, 2, 2], 'indices': [0, 1, 2]}
+        self.assertIn('angle', __import__('inspect').signature(api.preview_camera).parameters,
+                      'camera must support standard directions')
+        expected = {'iso': [1, -1, 1], 'front': [0, -1, 0], 'top': [0, 0, 1], 'right': [1, 0, 0]}
+        cameras = [api.preview_camera({'candidate': mesh}, angle=angle) for angle in expected]
+        self.assertTrue(all(c['origin_mm'] == [2, 1, 1] for c in cameras))
+        self.assertEqual(len({c['parallel_scale_mm'] for c in cameras}), 1)
+        for angle, camera in zip(expected, cameras):
+            self.assertEqual(camera['direction'], expected[angle])
+            self.assertEqual(camera['up'], [0, 1, 0] if angle == 'top' else [0, 0, 1])
+        for angle in ('front', 'top', 'right'):
+            svg = ET.fromstring(api.svg_preview({'candidate': mesh}, angle=angle))
+            polygon = svg.find('.//{http://www.w3.org/2000/svg}polygon')
+            points = [[float(c) for c in pair.split(',')] for pair in polygon.attrib['points'].split()]
+            self.assertLess(points[2][1], points[0][1])
+            if angle in ('front', 'top'):
+                self.assertGreater(points[1][0], points[0][0])
+            else:
+                self.assertGreater(points[2][0], points[0][0])
+
+    def test_preview_failure_keeps_all_four_static_split_and_overlay_views(self):
+        api = self.api()
+        mesh = {'vertices': [0, 0, 0, 10, 0, 0, 0, 10, 10], 'indices': [0, 1, 2]}
+        def worker(source, destination, **kwargs):
+            Path(destination).write_text(json.dumps(mesh), encoding='utf-8')
+            return {'status': 'completed'}
+        with patch.object(api, '_run_worker', side_effect=worker), patch.object(api, '_run_preview',
+                return_value={'status': 'failed', 'error': 'preview_timeout'}):
+            result = api.build_display_assets({'a': {'world': {'candidate': self.slot()}}}, self.root / 'report')
+        frame = result['a']['views']['world']
+        self.assertEqual(set(frame.get('previews', {})), {'iso', 'front', 'top', 'right'})
+        for angle, modes in frame['previews'].items():
+            self.assertEqual(set(modes), {'split', 'overlay'})
+            for url in modes.values():
+                self.assertTrue((self.root / 'report' / url).is_file(), (angle, url))
+        self.assertEqual(frame['thumbnail'], frame['previews']['iso']['split'])
+        self.assertEqual(frame['difference']['status'], 'unavailable')
+        self.assertEqual(frame['difference']['scope'], 'whole_model')
+        self.assertEqual(frame['metadata']['preview'].get('overlay_kind'), 'ordinary_overlay')
+
+    def test_invalid_interface_identity_never_falls_back_to_whole_model(self):
+        api = self.api()
+        self.assertIn('interfaces', __import__('inspect').signature(api.build_display_assets).parameters)
+        mesh = {'vertices': [0, 0, 0, 10, 0, 0, 0, 10, 10], 'indices': [0, 1, 2]}
+        def worker(source, destination, **kwargs):
+            Path(destination).write_text(json.dumps(mesh), encoding='utf-8')
+            return {'status': 'completed'}
+        for interface in ({'gt_sha256': '0'*64, 'regions': [{'path': str(self.source)}]},
+                          {'gt_sha256': self.slot()['sha256'], 'regions': [],
+                           'error': 'interface_input_unavailable'}):
+            with patch.object(api, '_run_worker', side_effect=worker), patch.object(api, '_run_preview',
+                    return_value={'status': 'failed', 'error': 'preview_timeout'}):
+                result = api.build_display_assets({'a': {'world': {'candidate': self.slot(),
+                    'reference': self.slot()}}}, self.root / 'report', interfaces={'a': interface})
+            frame = result['a']['views']['world']
+            self.assertEqual(frame['difference']['scope'], 'interface')
+            self.assertEqual(frame['difference']['status'], 'unavailable')
+            self.assertTrue(all(frame['previews'][angle]['overlay'] for angle in ('iso', 'front', 'top', 'right')))
+            self.assertNotIn(str(self.source), json.dumps(result))
+
+    def test_difference_worker_rejects_jig_hash_mismatch_and_cleans_layers(self):
+        api = self.api()
+        self.assertTrue(hasattr(api, '_run_difference'))
+        from tests.test_display_comparison import box
+        paths = {}
+        for role in ('candidate', 'reference'):
+            path = self.root / (role + '.json')
+            path.write_text(json.dumps(box(0, 2)), encoding='utf-8'); paths[role] = path
+        result = api._run_difference(paths, self.root / 'difference', timeout=20,
+            interface={'gt_sha256': 'a'*64, 'regions': [{'path': str(self.source),
+                'sha256': '0'*64, 'fit_type': 'KIR'}]}, reference_hash='a'*64)
+        self.assertEqual(result['status'], 'unavailable')
+        self.assertEqual(result['scope'], 'interface')
+        self.assertEqual(result['reason'], 'interface_source_hash_mismatch')
+        self.assertFalse(list(self.root.glob('difference-*.json')))
+
     def test_failed_role_preserves_other_role_and_reports_missing_faces(self):
         api = self.api()
         mesh = {'vertices': [0, 0, 0, 10, 0, 0, 0, 10, 0], 'indices': [0, 1, 2],
@@ -152,6 +230,25 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(view['metadata']['preview']['error'], 'preview_timeout')
         self.assertEqual(list((self.root / 'report' / 'previews').glob('*.svg')), [])
 
+    def test_partial_preview_worker_failure_preserves_completed_pngs(self):
+        api = self.api()
+        destination = self.root / 'preview.png'
+        # The native renderer may terminate after writing its first view.
+        # A valid independent 1x1 PNG represents that completed output.
+        import base64
+        png = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=')
+        def process(command, timeout):
+            destination.write_bytes(png)
+            destination.with_name('preview-front-split.tmp').write_bytes(b'partial')
+            return {'status': 'failed', 'error': 'mesh_timeout'}
+        with patch.object(api, '_run_process', side_effect=process):
+            result = api._run_preview({}, destination, timeout=1)
+        self.assertEqual(result['status'], 'partial')
+        self.assertEqual(destination.read_bytes(), png)
+        self.assertEqual(result['previews']['iso']['split'], destination)
+        self.assertIsNone(result['previews']['front']['split'])
+        self.assertFalse(destination.with_name('preview-front-split.tmp').exists())
+
     @unittest.skipUnless(os.environ.get('RUN_GEOMETRY_TESTS') == '1', 'geometry tests disabled')
     def test_png_is_candidate_left_reference_right_with_one_common_camera(self):
         api = self.api()
@@ -170,6 +267,10 @@ class DisplayTests(unittest.TestCase):
         self.assertLess(destination.stat().st_size, 500_000)
         self.assertEqual(result['metadata']['panels'], ['candidate', 'reference'])
         self.assertEqual(result['metadata']['camera']['origin_mm'], [5.5, 5.5, 5.5])
+        self.assertEqual(set(result['metadata']['cameras']), {'iso', 'front', 'top', 'right'})
+        for modes in api.preview_paths(destination).values():
+            for path in modes.values():
+                self.assertEqual(path.read_bytes()[:8], b'\x89PNG\r\n\x1a\n')
         from vtkmodules.vtkIOImage import vtkPNGReader
         import numpy as np
         reader = vtkPNGReader(); reader.SetFileName(str(destination)); reader.Update()
@@ -183,6 +284,36 @@ class DisplayTests(unittest.TestCase):
         self.assertGreater(len(ox), 1000); self.assertGreater(len(bx), 1000)
         self.assertAlmostEqual((ox.max()-ox.min())/(bx.max()-bx.min()), 1.1, delta=.025)
         self.assertAlmostEqual((oy.max()-oy.min())/(by.max()-by.min()), 1.1, delta=.025)
+
+    @unittest.skipUnless(os.environ.get('RUN_GEOMETRY_TESTS') == '1', 'geometry tests disabled')
+    def test_overlay_reveals_amber_missing_material_inside_matched_shell(self):
+        api = self.api()
+        import manifold3d as m
+        import numpy as np
+        from vtkmodules.vtkIOImage import vtkPNGReader
+        outer = m.Manifold.cube([6, 6, 6])
+        inner = m.Manifold.cube([2, 2, 2]).translate([2, 2, 2])
+        paths = {}
+        for name, solid in [('candidate', outer-inner), ('reference', outer),
+                            ('matched', outer-inner), ('missing', inner)]:
+            mesh = solid.to_mesh64()
+            path = self.root / (name+'.json')
+            path.write_text(json.dumps({'vertices': np.asarray(mesh.vert_properties)[:, :3].ravel().tolist(),
+                'indices': np.asarray(mesh.tri_verts).ravel().tolist()}), encoding='utf-8')
+            paths[name] = path
+        result = api._run_preview({key: paths[key] for key in ('candidate', 'reference')},
+            self.root/'overlay.png', timeout=30,
+            layer_paths={key: paths[key] for key in ('matched', 'missing')})
+        self.assertEqual(result['status'], 'completed', result)
+        reader = vtkPNGReader()
+        reader.SetFileName(str(self.root/'overlay-front-overlay.png')); reader.Update()
+        data = reader.GetOutput()
+        pixels = np.frombuffer(memoryview(data.GetPointData().GetScalars()), dtype=np.uint8).reshape(-1, 3).astype(float)
+        red, green, blue = pixels.T
+        # The blue translucent shell mixes with amber, so recognize its warm
+        # hue after compositing instead of expecting the unmixed layer color.
+        amber = (red > green*1.05) & (red < green*1.55) & (green > blue*1.5)
+        self.assertGreater(int(amber.sum()), 100, 'matched/context must not hide the inner missing volume')
 
     @unittest.skipUnless(os.environ.get('RUN_GEOMETRY_TESTS') == '1', 'geometry tests disabled')
     def test_real_box_mesh_uses_mm_and_preserves_ten_percent_scale_difference(self):
@@ -208,6 +339,40 @@ class DisplayTests(unittest.TestCase):
             self.assertEqual(mesh['missingFaceCount'], 0)
             xs = mesh['vertices'][::3]; widths.append(max(xs) - min(xs))
         self.assertEqual(widths, [10.0, 11.0])
+
+    @unittest.skipUnless(os.environ.get('RUN_GEOMETRY_TESTS') == '1', 'geometry tests disabled')
+    def test_real_jig_uses_each_existing_frame_without_alignment_or_input_mutation(self):
+        api = self.api()
+        from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+        from OCP.STEPControl import STEPControl_Writer, STEPControl_AsIs
+        from OCP.gp import gp_Pnt
+        from tests.test_display_comparison import volume
+        slots, original = {}, {}
+        for role, start in [('reference', 0), ('candidate', 1), ('jig', 0)]:
+            path = self.root / (role + '.step')
+            writer = STEPControl_Writer()
+            writer.Transfer(BRepPrimAPI_MakeBox(gp_Pnt(start, 0, 0), 2, 2, 2).Shape(), STEPControl_AsIs)
+            self.assertEqual(int(writer.Write(str(path))), 1)
+            original[role] = path.read_bytes()
+            slots[role] = {'path': str(path), 'sha256': hashlib.sha256(original[role]).hexdigest(),
+                           'coordinate_frame': 'world'}
+        result = api.build_display_assets({'a': {
+            'world': {'candidate': slots['candidate'], 'reference': slots['reference']},
+            'scoring': {'candidate': slots['reference'], 'reference': slots['reference']}}},
+            self.root / 'report', interfaces={'a': {'gt_sha256': slots['reference']['sha256'],
+                'regions': [{**slots['jig'], 'fit_type': 'KIR'}]}})
+        for frame_name, expected in [('world', {'matched': 4, 'extra': 4, 'missing': 4}),
+                                      ('scoring', {'matched': 8, 'extra': 0, 'missing': 0})]:
+            frame = result['a']['views'][frame_name]
+            self.assertEqual(frame['difference']['status'], 'completed', frame['difference'])
+            self.assertEqual(frame['difference']['scope'], 'interface')
+            actual = {key: volume(json.loads((self.root / 'report' / url).read_text(encoding='utf-8')))
+                      if url else 0 for key, url in frame['difference']['layers'].items()}
+            self.assertEqual(actual, expected)
+            self.assertEqual(frame['metadata']['preview']['overlay_kind'], 'difference')
+        for role, data in original.items():
+            self.assertEqual(Path(slots[role]['path']).read_bytes(), data)
+        self.assertNotIn(str(self.root), json.dumps(result))
 
 
 if __name__ == '__main__':

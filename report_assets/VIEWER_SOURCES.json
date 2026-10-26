@@ -35,7 +35,8 @@
     "Relative module URLs; instance-scoped interaction, cancellation, validation, worker timeout and disposal.",
     "Both models use one display origin and camera; no separate normalization or scoring.",
     "Offscreen VTK raster thumbnails share one orthographic camera; candidate left, reference right; no face dropping.",
-    "Canvas CSS dimensions are independent of device-pixel drawing buffer; immediate initial resize and bounded grid sizing."
+    "Canvas CSS dimensions are independent of device-pixel drawing buffer; immediate initial resize and bounded grid sizing.",
+    "Four exact orthographic directions; tessellated whole-model and optional GT-bound KOR/KIR material partitions, never scoring."
   ],
   "adapted_files": [
     {
@@ -44,15 +45,15 @@
     },
     {
       "path": "src/display_worker.py",
-      "sha256": "ac5e87c61cde0cec90806f81d0054cd4edd60de0e581c978041cbe580cff2a33"
+      "sha256": "5763a5f66257d37a89ba03c72ac65ffcd701bcb454703fa9ada4bc7ad663a594"
     },
     {
       "path": "src/display_assets.py",
-      "sha256": "7f392b9efba4af3be1f221f8a140567f03cfaf59912ca999058bf901370c6b5b"
+      "sha256": "ab5f0e1a1e60a818aa6dbfc49fd79d7732a11883db253fc5a294672e0a771919"
     },
     {
       "path": "report_assets/viewer/comparison-view.js",
-      "sha256": "3658a0f05a2f5a06208feaac5b13ef0169374908aa38cf7b8eab0d1ebebf565f"
+      "sha256": "368a6df6d7406207dc99af505b39ccea4c0160cbed1ac065f4a54994b89ddc9d"
     },
     {
       "path": "report_assets/viewer/preview-geometry-worker.js",
@@ -60,7 +61,25 @@
     },
     {
       "path": "report_assets/viewer/mesh-validation.js",
-      "sha256": "0a0dd357a88b66ae0cf9b9f8e403b348f8345fe496879031969cc9afe306a3d0"
+      "sha256": "f84c7b1e3f3404af4cb604db25e511c443d650e1c9d35145001cc61269f9120d"
+    }
+  ],
+  "report_comparison_revision": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged",
+  "local_display_sources": [
+    {
+      "bytes": 6362,
+      "sha256": "740e926c9bb2384531ed2f71bf6325a26b459297ce72203b9452780563eb907b",
+      "path": "src/display_comparison.py"
+    },
+    {
+      "bytes": 4182,
+      "sha256": "a55a82fead7b6604e4696abfab2a290b35649e8abd6287c96f8a5114ca05b05a",
+      "path": "src/report_interfaces.py"
+    },
+    {
+      "bytes": 4440,
+      "sha256": "50effaeb94acd06607df1054590d3758dfe437eb31a9d00cc7ef02297ae33f07",
+      "path": "src/report_downloads.py"
     }
   ]
 }
