@@ -1,0 +1,12 @@
+{
+  "result": {
+    "content": [
+      {
+        "text": "{\"ok\": false, \"success\": false, \"status\": \"error\", \"text\": \"[ERROR] Requested sketch was not found\\nError Code: 104 (swSelectionError)\\nDetails: {\\n  \\\"mutation_started\\\": false,\\n  \\\"automatic_retry_allowed\\\": false\\n}\", \"message\": \"Requested sketch was not found\", \"vendor_error_code\": 104, \"vendor_error_name\": \"swSelectionError\", \"data\": {\"mutation_started\": false, \"automatic_retry_allowed\": false}, \"tool\": \"extrude_sketch\", \"arguments\": {\"depth\": 30, \"sketch_name\": \"Sketch1\", \"unit\": \"mm\"}, \"unit_context\": {\"default_unit\": \"mm\", \"explicit_unit\": \"mm\", \"argument_unit\": \"mm\", \"scope\": \"C:\\\\benchmark-fixture\\\\candidate\\\\Q01\"}, \"error_code\": \"selection_operation_failed\", \"recover_hint\": \"Verify the active document and explicitly select the required SolidWorks entities.\", \"error\": \"Requested sketch was not found\", \"executor\": {\"serial\": true, \"dedicated_worker\": true, \"reentrant\": false, \"caller_thread_id\": 101, \"worker_thread_id\": 102, \"duration_s\": 1.25, \"timeout_policy\": \"hard_process_termination\", \"timeout_enforced\": true, \"soft_timeout_s\": 180.0, \"soft_timeout_exceeded\": false, \"timeout_s\": 180.0, \"timeout_exceeded\": false}, \"executor_log\": {\"enabled\": true, \"written\": true, \"path\": \"C:\\\\benchmark-fixture\\\\audit\\\\Q01\\\\cad\\\\solidworks_executor.jsonl\"}, \"benchmark_instance\": {\"pid\": 1000, \"session_id\": 1, \"version\": \"34.4.1\", \"executable\": \"C:\\\\benchmark-fixture\\\\SolidWorks\"}, \"process_isolation\": {\"enabled\": true, \"worker_pid\": 1001, \"hard_timeout_s\": 180.0, \"duration_s\": 1.25, \"returncode\": 0, \"helper_version\": \"1\", \"same_worker_instance_guard\": true}}",
+        "type": "text"
+      }
+    ],
+    "isError": false
+  },
+  "tool": "extrude_sketch"
+}

@@ -153,6 +153,32 @@ def _fields(names, kind='scalar'):
     return {name: kind for name in names.split()}
 
 
+def project_cad_provenance(value):
+    """Project maintainer pipeline provenance; never publish paths or worker claims."""
+    schema = {**_fields('cad_backend cad_config_sha256 failure_stage evaluation_source_sha256 export_receipt_sha256 template_selection_receipt_sha256'),
+        'cad_identity': _fields('backend version software_version bridge_version adapter_version adapter_sha256 helper_sha256 tools_sha256 source_sha256 server_name pid session_id'),
+        'native_document': _fields('schema format document_type bytes sha256 configuration dependency_sha256'),
+        'trusted_step_sha256': 'text', 'trusted_report_sha256': 'text',
+        'trusted_export': {**_fields('status stage length_unit step_ap body_scope dependency_status template_evidence_count'),
+                           'declared_length_units': ['text'], 'warnings': [_fields('name message health phase code bit classification reason')]},
+        'cad_capabilities': {**_fields('backend declared_support dependency_discovered available'),
+                             **{key: _fields('executed status') for key in ('mcp_handshake', 'cad_connection', 'trusted_export')}}}
+    result = _project(value, schema) or {}
+    identity = value.get('cad_identity') or {}
+    if isinstance(identity, dict):
+        shown = result.setdefault('cad_identity', {}) if identity else {}
+        instance = identity.get('instance') or {}
+        if isinstance(instance, dict):
+            shown.update(_project(instance, _fields('pid session_id version')))
+        bridge = identity.get('bridge_server', identity.get('server', {})) or {}
+        server = bridge.get('serverInfo', {}) if isinstance(bridge, dict) else {}
+        if isinstance(server, dict):
+            for key, target in (('name', 'server_name'), ('version', 'bridge_version')):
+                if isinstance(server.get(key), str):
+                    shown[target] = _text(server[key])
+    return result
+
+
 _SPREAD = _fields('volume_relative inertia_relative centroid_mm')
 _MASS_SIDE = {**_fields('volume_mm3 backend converged diagonal_mm integration_eps integration_error_estimate deflection_mm'),
               'centroid_mm': ['number'], 'principal_moments': ['number'], 'spread': _SPREAD,
@@ -457,6 +483,7 @@ def load_report(source, *, pipeline=None, analysis=None, run_name=None):
             cases.append(result)
             by_id[case] = result
         by_id[case]['pipeline_state'] = _text(row.get('state', row.get('status', 'unknown')))
+        by_id[case].update(project_cad_provenance(row))
     cases.sort(key=lambda row: row['case'])
     public_files = [{'path': name, 'sha256': digest} for name, digest in sorted(reader.files.items())] if reader else []
     appendix = _analysis(analysis, reader, cases, mode, weights) if analysis is not None else {'status': 'not_provided'}
@@ -467,6 +494,7 @@ def load_report(source, *, pipeline=None, analysis=None, run_name=None):
             'generated_at': datetime.now(timezone.utc).isoformat(), 'ranking_eligible': False,
             'summary': _summary(cases), 'cases': cases, 'analysis': appendix,
             'warnings': warnings, 'source_files': public_files}
+    data.update(project_cad_provenance(pipeline))
     return ReportBundle(data, models, public_files)
 
 

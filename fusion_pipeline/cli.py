@@ -31,6 +31,12 @@ def main(argv=None):
     run = commands.add_parser("run")
     run.add_argument("--config", type=Path, required=True)
     run.add_argument("--preflight-only", action="store_true")
+    run.add_argument("--cad-backend", choices=('fusion', 'solidworks'), help='Override the configured CAD backend for this new run')
+    cad_probe = commands.add_parser('cad-probe', help='Explicit CAD discovery or connection probe; no model calls')
+    cad_probe.add_argument('--config', type=Path, required=True)
+    cad_probe.add_argument('--output', type=Path, required=True)
+    cad_probe.add_argument('--stage', choices=('discovery', 'connect'), default='discovery')
+    cad_probe.add_argument('--launch-cad', action='store_true', help='Explicitly permit launch during a connect probe')
     visual = commands.add_parser("visual-check", help="Explicit real model image check; spends model budget, no Fusion calls")
     visual.add_argument("--config", type=Path, required=True)
     visual.add_argument("--output", type=Path, required=True)
@@ -44,6 +50,11 @@ def main(argv=None):
         item.add_argument("--config", type=Path, required=True)
         item.add_argument("run_id")
     args = parser.parse_args(argv)
+    if args.command == 'cad-probe':
+        from .cad_probe import run_probe
+        result = run_probe(args.config, args.output, stage=args.stage, launch_cad=args.launch_cad)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result['status'] == 'passed' else 2
     if args.command == "visual-check":
         from .visual_check import run_visual_check
         result = run_visual_check(args.config, args.output)
@@ -71,7 +82,7 @@ def main(argv=None):
         result = definition(args.cli, command) if args.dry_run else register(args.cli, args.target, command)
     elif args.command == "run":
         from .runner import Trial
-        trial = Trial(args.config)
+        trial = Trial(args.config, cad_backend=args.cad_backend)
         print(json.dumps({"run": str(trial.run)}, ensure_ascii=False), flush=True)
         code = trial.run_all(preflight_only=args.preflight_only)
         from .reporting import report_references

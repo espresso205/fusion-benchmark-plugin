@@ -20,6 +20,7 @@ import uuid
 
 from src.io_utils import strict_json
 from fusion_pipeline.input_assets import load_manifest, validate_manifest, verify_manifest, iter_assets, read_asset
+from fusion_pipeline.native_contract import validate_native_descriptor, submission_spec
 
 SCHEMA_VERSION = 2
 STATES = ("preflight", "case_queued", "modeling", "artifact_staged", "candidate_frozen")
@@ -100,7 +101,12 @@ class Scheduler:
         self._state = None
         self.last_error = None
 
-    def create_run(self, run_id=None):
+    def create_run(self, run_id=None, *, cad_backend=None, cad_config_sha256=None):
+        if cad_backend is not None:
+            submission_spec(cad_backend)
+            _sha(cad_config_sha256)
+        elif cad_config_sha256 is not None:
+            raise ValueError('CAD config digest requires cad_backend')
         if run_id is None:
             run_id = datetime.now(timezone.utc).strftime("run-%Y%m%dT%H%M%S-%fZ-") + uuid.uuid4().hex[:8]
         _identity(run_id, "run_id")
@@ -109,6 +115,8 @@ class Scheduler:
         run.mkdir(exist_ok=False)
         self.run_id, self.run_dir = run_id, run
         self._state = {"schema_version": SCHEMA_VERSION, "run_id": run_id, "revision": 0, "cases": {}, "events": []}
+        if cad_backend is not None:
+            self._state.update(schema_version=3, cad_backend=cad_backend, cad_config_sha256=cad_config_sha256)
         self._atomic("checkpoint.json", _encode(self._state), exclusive=True)
         self._write_views()
         return run
@@ -196,10 +204,17 @@ class Scheduler:
 
     def _validate_checkpoint(self):
         data = self._state
-        if not isinstance(data, dict) or set(data) != {"schema_version", "run_id", "revision", "cases", "events"}:
+        fields = {"schema_version", "run_id", "revision", "cases", "events"}
+        modern = isinstance(data, dict) and data.get('schema_version') == 3
+        if modern:
+            fields |= {'cad_backend', 'cad_config_sha256'}
+        if not isinstance(data, dict) or set(data) != fields:
             raise ValueError("invalid checkpoint; legacy summary-only runs require a new run")
-        if type(data["schema_version"]) is not int or data["schema_version"] != SCHEMA_VERSION or data["run_id"] != self.run_id:
+        if type(data["schema_version"]) is not int or data["schema_version"] not in (SCHEMA_VERSION, 3) or data["run_id"] != self.run_id:
             raise ValueError("checkpoint schema/run identity mismatch")
+        if modern:
+            submission_spec(data['cad_backend'])
+            _sha(data['cad_config_sha256'])
         if type(data["revision"]) is not int or data["revision"] < 0:
             raise ValueError("invalid checkpoint revision")
         if not isinstance(data["cases"], dict) or not isinstance(data["events"], list):
@@ -214,7 +229,12 @@ class Scheduler:
                 raise ValueError("invalid case record")
             contract = record.get("contract")
             validate_case_spec(contract)
-            if contract["case_id"] != case_id or set(contract) != {"case_id", "attempt_id", "protocol_id", "trusted_step_required", "inputs"}:
+            contract_fields = {"case_id", "attempt_id", "protocol_id", "trusted_step_required", "inputs"}
+            if modern:
+                contract_fields |= {'cad_backend', 'cad_config_sha256'}
+                if any(contract.get(key) != data[key] for key in ('cad_backend', 'cad_config_sha256')):
+                    raise ValueError('case CAD identity differs from run')
+            if contract["case_id"] != case_id or set(contract) != contract_fields:
                 raise ValueError("invalid registered contract")
             inputs = contract["inputs"]
             if isinstance(inputs, dict) and set(inputs) == {"task", "drawing"}:
@@ -291,6 +311,8 @@ class Scheduler:
         with self._transaction():
             if any(case_id.casefold() == key.casefold() for key in self._state["cases"]):
                 raise ValueError(f"duplicate case: {case_id}")
+            if self._state['schema_version'] == 3:
+                contract.update({key: self._state[key] for key in ('cad_backend', 'cad_config_sha256')})
             target = self._path(f"public/{case_id}")
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
@@ -399,6 +421,20 @@ class Scheduler:
     def _manifest_relative(self, case_id):
         return f"frozen/{case_id}/artifact_manifest.json"
 
+    def _native_document(self, case_id, record):
+        contract = record['contract']
+        identity = {'run_id': self.run_id, **{key: contract[key] for key in (
+            'case_id', 'attempt_id', 'protocol_id', 'cad_backend', 'cad_config_sha256')}}
+        data = strict_json(self._path(f'candidate/{case_id}/native_document.json'))
+        native_path = self._path(f"candidate/{case_id}/{submission_spec(contract['cad_backend'])['filename']}")
+        validate_native_descriptor(data, identity=identity, path=native_path)
+        deps = self._dependencies(case_id, record)
+        if data['dependency_sha256'] != _hash(self._path(f'candidate/{case_id}/dependency_manifest.json')):
+            raise ValueError('native dependency evidence changed')
+        if contract['cad_backend'] == 'solidworks' and deps['dependencies']:
+            raise ValueError('SolidWorks v1 accepts only self-contained Parts')
+        return data
+
     def freeze_candidate(self, case_id):
         with self._transaction():
             record = self._state["cases"][case_id]
@@ -407,7 +443,13 @@ class Scheduler:
             self._check_inputs(case_id, record)
             self._dependencies(case_id, record)
             artifacts = {}
-            for role, filename in (("f3d", "submission.f3d"), ("dependency_manifest", "dependency_manifest.json")):
+            modern = self._state['schema_version'] == 3
+            files = [("dependency_manifest", "dependency_manifest.json")]
+            if modern:
+                artifacts['native_document'] = self._native_document(case_id, record)
+            else:
+                files.insert(0, ('f3d', 'submission.f3d'))
+            for role, filename in files:
                 artifacts[role] = {**self._descriptor(f"candidate/{case_id}/{filename}"), "required_by_protocol": True}
             raw = f"candidate/{case_id}/submission.step"
             if self._path(raw).exists():
@@ -417,12 +459,14 @@ class Scheduler:
                                          "reason": "not submitted; raw STEP is optional diagnostic evidence"}
             contract = record["contract"]
             manifest = {
-                "schema_version": SCHEMA_VERSION, "kind": "candidate_submission", "run_id": self.run_id,
+                "schema_version": self._state['schema_version'], "kind": "candidate_submission", "run_id": self.run_id,
                 "case_id": case_id, "attempt_id": contract["attempt_id"], "protocol_id": contract["protocol_id"],
                 "inputs": deepcopy(contract["inputs"]), "artifacts": artifacts,
                 "environment": {"verification_mode": "offline_file_integrity"},
                 "created_at_utc": datetime.now(timezone.utc).isoformat(),
             }
+            if modern:
+                manifest.update({key: contract[key] for key in ('cad_backend', 'cad_config_sha256')})
             relative = self._manifest_relative(case_id)
             self._atomic(relative, _encode(manifest), exclusive=True)
             record["manifest_sha256"] = _hash(self._path(relative))
@@ -440,20 +484,32 @@ class Scheduler:
             raise ValueError("frozen manifest hash mismatch")
         data = strict_json(manifest_path)
         fields = {"schema_version", "kind", "run_id", "case_id", "attempt_id", "protocol_id", "inputs", "artifacts", "environment", "created_at_utc"}
+        modern = self._state['schema_version'] == 3
+        if modern:
+            fields |= {'cad_backend', 'cad_config_sha256'}
         if not isinstance(data, dict) or set(data) != fields:
             raise ValueError("invalid submission manifest schema")
         contract = record["contract"]
-        if type(data["schema_version"]) is not int or data["schema_version"] != SCHEMA_VERSION or data["kind"] != "candidate_submission":
+        if type(data["schema_version"]) is not int or data["schema_version"] != self._state['schema_version'] or data["kind"] != "candidate_submission":
             raise ValueError("unsupported submission manifest")
         if data["run_id"] != self.run_id or any(data[key] != contract[key] for key in ("case_id", "attempt_id", "protocol_id", "inputs")):
             raise ValueError("manifest does not match registered run/case/attempt/protocol/inputs")
+        if modern and any(data[key] != contract[key] for key in ('cad_backend', 'cad_config_sha256')):
+            raise ValueError('frozen CAD identity mismatch')
         if data["environment"] != {"verification_mode": "offline_file_integrity"}:
             raise ValueError("invalid verification mode")
         _text(data["created_at_utc"], "created_at_utc")
         artifacts = data["artifacts"]
-        if not isinstance(artifacts, dict) or set(artifacts) != {"f3d", "dependency_manifest", "raw_step"}:
+        roles = {'native_document' if modern else 'f3d', 'dependency_manifest', 'raw_step'}
+        if not isinstance(artifacts, dict) or set(artifacts) != roles:
             raise ValueError("invalid artifact roles")
-        for role, filename in (("f3d", "submission.f3d"), ("dependency_manifest", "dependency_manifest.json")):
+        files = [("dependency_manifest", "dependency_manifest.json")]
+        if modern:
+            if artifacts['native_document'] != self._native_document(case_id, record):
+                raise ValueError('frozen native document changed')
+        else:
+            files.insert(0, ('f3d', 'submission.f3d'))
+        for role, filename in files:
             item = deepcopy(artifacts[role])
             if not isinstance(item, dict) or item.pop("required_by_protocol", None) is not True:
                 raise ValueError(f"{role} must be required")
@@ -523,7 +579,7 @@ class Scheduler:
 
     def _summary(self):
         cases = self._state["cases"]
-        return {"schema_version": SCHEMA_VERSION, "run_id": self.run_id, "revision": self._state["revision"],
+        return {"schema_version": self._state['schema_version'], "run_id": self.run_id, "revision": self._state["revision"],
                 "mode": "offline_file_integrity", "cases": deepcopy(cases),
                 "all_submissions_verified": bool(cases) and all(c["submission_verified"] for c in cases.values()),
                 "all_artifacts_frozen": False, "batch_complete": False, "rank_eligible": False}

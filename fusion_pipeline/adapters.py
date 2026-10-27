@@ -146,20 +146,23 @@ def build_invocation(spec):
     env, provider_options, auth_metadata = credential_settings(provider, spec.get("env", os.environ), spec.get("credential_settings"))
     command = spec["worker_command"]
     args = [spec["executable"]]
+    tool_timeout = spec.get('tool_timeout_s', 180)
+    if type(tool_timeout) is not int or not 1 <= tool_timeout <= 1800:
+        raise ValueError('invalid CAD tool timeout')
     session = str(uuid.uuid4())
     if provider == "opencode":
         # Project discovery and all native tools are disabled. Global provider auth
         # may remain, while the explicit overlay disables every discovered MCP.
         mcp = {name: {"enabled": False} for name in spec.get("existing_mcp_names", [])}
-        mcp["benchmark"] = {"type": "local", "command": command, "enabled": True, "timeout": 180000}
+        mcp["benchmark"] = {"type": "local", "command": command, "enabled": True, "timeout": tool_timeout * 1000}
         overlay = {"model": model, "small_model": model, "plugin": [], "mcp": mcp,
                    "permission": {"*": "deny", "benchmark_*": "allow"}, "snapshot": False,
                    "agent": {"benchmark": {"mode": "primary", "model": model, "prompt": "Follow only this case contract. Use benchmark MCP tools."}}}
         env.update(OPENCODE_CONFIG_CONTENT=json.dumps(overlay), OPENCODE_DISABLE_PROJECT_CONFIG="1",
                    OPENCODE_DISABLE_CLAUDE_CODE="1", OPENCODE_DISABLE_DEFAULT_PLUGINS="1")
-        args += ["run", "--pure", "--format", "json", "--model", model, "--agent", "benchmark", "--dir", str(root), "--title", "Fusion " + session]
+        args += ["run", "--pure", "--format", "json", "--model", model, "--agent", "benchmark", "--dir", str(root), "--title", spec.get('cad_backend', 'fusion') + " " + session]
     elif provider == "codex":
-        config = {"mcp_servers": {"benchmark": {"command": command[0], "args": command[1:], "tool_timeout_sec": 180}}}
+        config = {"mcp_servers": {"benchmark": {"command": command[0], "args": command[1:], "tool_timeout_sec": tool_timeout}}}
         args += ["--no-daemon", "-a", "never", "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral",
                  "--skip-git-repo-check", "--sandbox", "read-only", "--json", "--model", model, "--cd", str(root)]
         args += provider_options
@@ -168,8 +171,9 @@ def build_invocation(spec):
         args += ["-c", "features.skip_host_skill_discovery=true", "-c", "web_search=\"disabled\"", "-c", "project_doc_max_bytes=0",
                  "-c", "mcp_servers.benchmark.command=" + json.dumps(command[0]),
                  "-c", "mcp_servers.benchmark.args=" + json.dumps(command[1:]),
-                 "-c", "mcp_servers.benchmark.tool_timeout_sec=180", "-"]
+                  "-c", "mcp_servers.benchmark.tool_timeout_sec=" + str(tool_timeout), "-"]
     else:
+        env['MCP_TOOL_TIMEOUT'] = str(tool_timeout * 1000)
         config_file = audit / "claude-mcp.json"
         config_file.write_text(json.dumps({"mcpServers": {"benchmark": {"type": "stdio", "command": command[0], "args": command[1:]}}}), encoding="utf-8")
         settings_file = audit / "claude-settings.json"
@@ -226,6 +230,162 @@ def inspect_events(provider, events, model, expected_actual_model=None):
             "model_identity_source": "provider_metadata" if actual_models else "requested_only"}
 
 
+class _WindowsProcessTree:
+    """An unnamed job captures descendants before the suspended root can run."""
+    def __init__(self):
+        import ctypes as c
+        from ctypes import wintypes as w
+        self.c, self.w = c, w
+        self.kernel = c.WinDLL('kernel32', use_last_error=True)
+        signatures = {
+            'CreateJobObjectW': ([c.c_void_p, w.LPCWSTR], w.HANDLE),
+            'SetInformationJobObject': ([w.HANDLE, c.c_int, c.c_void_p, w.DWORD], w.BOOL),
+            'AssignProcessToJobObject': ([w.HANDLE, w.HANDLE], w.BOOL),
+            'TerminateJobObject': ([w.HANDLE, w.UINT], w.BOOL),
+            'QueryInformationJobObject': ([w.HANDLE, c.c_int, c.c_void_p, w.DWORD, c.c_void_p], w.BOOL),
+            'CloseHandle': ([w.HANDLE], w.BOOL),
+            'CreateToolhelp32Snapshot': ([w.DWORD, w.DWORD], w.HANDLE),
+            'Thread32First': ([w.HANDLE, c.c_void_p], w.BOOL),
+            'Thread32Next': ([w.HANDLE, c.c_void_p], w.BOOL),
+            'OpenThread': ([w.DWORD, w.BOOL, w.DWORD], w.HANDLE),
+            'ResumeThread': ([w.HANDLE], w.DWORD),
+        }
+        for name, (arguments, result) in signatures.items():
+            function = getattr(self.kernel, name)
+            function.argtypes, function.restype = arguments, result
+        class Basic(c.Structure):
+            _fields_ = [('process_time', c.c_int64), ('job_time', c.c_int64), ('flags', w.DWORD),
+                        ('minimum_working_set', c.c_size_t), ('maximum_working_set', c.c_size_t),
+                        ('active_limit', w.DWORD), ('affinity', c.c_size_t), ('priority', w.DWORD), ('scheduling', w.DWORD)]
+        class Limits(c.Structure):
+            _fields_ = [('basic', Basic), ('io_counters', c.c_uint64 * 6),
+                        ('process_memory', c.c_size_t), ('job_memory', c.c_size_t),
+                        ('peak_process_memory', c.c_size_t), ('peak_job_memory', c.c_size_t)]
+        self.handle = self.kernel.CreateJobObjectW(None, None)
+        if not self.handle:
+            raise c.WinError(c.get_last_error())
+        self.verified_stopped, self.remaining_processes = False, None
+        limits = Limits()
+        limits.basic.flags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE; no breakaway.
+        if not self.kernel.SetInformationJobObject(self.handle, 9, c.byref(limits), c.sizeof(limits)):
+            error = c.WinError(c.get_last_error())
+            self.kernel.CloseHandle(self.handle)
+            self.handle = None
+            raise error
+
+    def attach(self, process):
+        if not self.kernel.AssignProcessToJobObject(self.handle, self.w.HANDLE(int(process._handle))):
+            raise self.c.WinError(self.c.get_last_error())
+
+    def resume(self, process):
+        c, w = self.c, self.w
+        class ThreadEntry(c.Structure):
+            _fields_ = [('size', w.DWORD), ('usage', w.DWORD), ('thread_id', w.DWORD), ('process_id', w.DWORD),
+                        ('base_priority', w.LONG), ('delta_priority', w.LONG), ('flags', w.DWORD)]
+        snapshot = self.kernel.CreateToolhelp32Snapshot(0x4, 0)
+        if snapshot == c.c_void_p(-1).value:
+            raise c.WinError(c.get_last_error())
+        threads = []
+        try:
+            entry = ThreadEntry()
+            entry.size = c.sizeof(entry)
+            present = self.kernel.Thread32First(snapshot, c.byref(entry))
+            while present:
+                if entry.process_id == process.pid:
+                    threads.append(entry.thread_id)
+                present = self.kernel.Thread32Next(snapshot, c.byref(entry))
+        finally:
+            self.kernel.CloseHandle(snapshot)
+        if len(threads) != 1:
+            raise RuntimeError('suspended candidate primary thread identity unconfirmed')
+        thread = self.kernel.OpenThread(0x2, False, threads[0])
+        if not thread:
+            raise c.WinError(c.get_last_error())
+        try:
+            if self.kernel.ResumeThread(thread) != 1:
+                raise RuntimeError('candidate primary thread suspension state changed')
+        finally:
+            self.kernel.CloseHandle(thread)
+
+    def stop(self):
+        if self.verified_stopped:
+            return
+        c, w = self.c, self.w
+        class Accounting(c.Structure):
+            _fields_ = [('user_time', c.c_int64), ('kernel_time', c.c_int64),
+                        ('period_user', c.c_int64), ('period_kernel', c.c_int64),
+                        ('faults', w.DWORD), ('total', w.DWORD), ('active', w.DWORD), ('terminated', w.DWORD)]
+        if not self.kernel.TerminateJobObject(self.handle, 1):
+            raise c.WinError(c.get_last_error())
+        deadline = time.monotonic() + 15
+        while True:
+            accounting = Accounting()
+            if not self.kernel.QueryInformationJobObject(self.handle, 1, c.byref(accounting), c.sizeof(accounting), None):
+                raise c.WinError(c.get_last_error())
+            self.remaining_processes = accounting.active
+            if not accounting.active:
+                if not self.kernel.CloseHandle(self.handle):
+                    raise c.WinError(c.get_last_error())
+                self.handle, self.verified_stopped = None, True
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError('candidate job still contains active processes; reconciliation required')
+            time.sleep(0.02)
+
+
+class _PosixProcessTree:
+    def __init__(self, process):
+        self.process = process
+        self.group = process.pid  # Popen starts a new session before exec.
+        self.verified_stopped, self.remaining_processes = False, None
+
+    def stop(self):
+        import signal
+        if self.verified_stopped:
+            return
+        try:
+            os.killpg(self.group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        # Reap our root before probing its group: a killed, unreaped root can
+        # otherwise keep the group observable even though it cannot execute.
+        self.process.wait(timeout=15)
+        deadline = time.monotonic() + 15
+        while True:
+            try:
+                os.killpg(self.group, 0)
+            except ProcessLookupError:
+                self.remaining_processes, self.verified_stopped = 0, True
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError('candidate process group exit cannot be confirmed')
+            time.sleep(0.02)
+
+
+def spawn_owned_process(arguments, **options):
+    """Start only a candidate-owned process; never attach an existing CAD process."""
+    if os.name != 'nt':
+        options['start_new_session'] = True
+        process = subprocess.Popen(arguments, **options)
+        process._benchmark_owned_tree = _PosixProcessTree(process)
+        return process
+    tree, process = _WindowsProcessTree(), None
+    try:
+        options['creationflags'] = options.get('creationflags', 0) | 0x4  # CREATE_SUSPENDED
+        process = subprocess.Popen(arguments, **options)
+        process._benchmark_owned_tree = tree
+        tree.attach(process)
+        tree.resume(process)
+        return process
+    except BaseException:
+        # If assignment failed, the never-resumed root is not in the job yet.
+        if process is not None and process.poll() is None:
+            process.kill()
+            process.wait(timeout=15)
+        tree.stop()
+        raise
+
+
 def launch_fresh(spec, processes):
     from .runner import atomic, stop_tree
     invocation = build_invocation(spec)
@@ -236,7 +396,7 @@ def launch_fresh(spec, processes):
     started = time.monotonic()
     timed_out = cancelled = False
     with (audit / "session.jsonl").open("xb") as log, (audit / "stderr.log").open("xb") as error:
-        process = subprocess.Popen(invocation["args"], cwd=spec["workspace"], env=invocation["env"], stdin=subprocess.PIPE,
+        process = spawn_owned_process(invocation["args"], cwd=spec["workspace"], env=invocation["env"], stdin=subprocess.PIPE,
                                    stdout=log, stderr=error, **options)
         processes.append(process)
         data = invocation["input"]
@@ -259,6 +419,14 @@ def launch_fresh(spec, processes):
         except BaseException:
             stop_tree(process)
             raise
+        # communicate() proves only the CLI root exited. The job/group also owns
+        # Gateway, stdio bridge and any detached descendants before submission.
+        stop_tree(process)
+        process_cleanup = {'schema': 'candidate-process-tree/1',
+            'root_pid': process.pid, 'method': 'windows_job' if os.name == 'nt' else 'posix_session',
+            'verified_stopped': process._benchmark_owned_tree.verified_stopped,
+            'remaining_processes': process._benchmark_owned_tree.remaining_processes}
+        atomic(audit / 'process-tree-cleanup.json', process_cleanup)
     events = []
     malformed = False
     for line in (audit / "session.jsonl").read_text(encoding="utf-8").splitlines():
@@ -298,4 +466,5 @@ def launch_fresh(spec, processes):
         verification.update(verified=False, errors=verification["errors"] + ["malformed_event_stream"])
     atomic(audit / "session-verification.json", verification)
     return {"returncode": process.returncode, "timed_out": timed_out, "cancelled": cancelled,
-            "elapsed_s": time.monotonic() - started, "session_verification": verification}
+            "elapsed_s": time.monotonic() - started, "session_verification": verification,
+            'process_cleanup': process_cleanup}

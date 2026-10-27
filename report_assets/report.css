@@ -124,9 +124,23 @@ tbody tr:last-child > * { border-bottom: 0; }
 .task-summary-item > span:last-child { color: var(--muted); font-size: 11px; }
 .task-summary-item strong { color: var(--accent); font-size: 18px; font-weight: 600; }
 .task-summary-item small { font-size: 10px; font-weight: 400; color: var(--muted); }
-.task-prompt { margin: 0 0 18px; padding: 17px 20px; background: #fff; border: 1px solid var(--border); border-radius: 8px; }
-.task-prompt h3 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
-.task-prompt p { margin: 0; font-size: 13px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-prompt { margin: 0 0 20px; padding: 22px 26px; background: #fff; border: 1px solid var(--border); border-radius: 8px; }
+.task-prompt > h3 { font-size: 12px; color: #748091; margin: 0 0 16px; font-weight: 500; }
+.task-body { max-width: 84ch; font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Microsoft YaHei", Arial, sans-serif; font-size: 15px; font-variant-numeric: normal; line-height: 1.75; color: #46566b; overflow-wrap: anywhere; }
+.task-body p { margin: 0 0 1em; white-space: normal; }
+.task-body h4, .task-body h5, .task-body h6 { color: #293c53; font-weight: 600; line-height: 1.4; margin: 1.3em 0 .65em; text-wrap: pretty; }
+.task-body h4 { font-size: 21px; letter-spacing: -.2px; }
+.task-body h5 { font-size: 17px; }
+.task-body h6 { font-size: 15px; }
+.task-body > :first-child { margin-top: 0; }
+.task-body > :last-child { margin-bottom: 0; }
+.task-body ul, .task-body ol { padding-left: 1.5em; margin: 0 0 1em; }
+.task-body li { padding-left: .25em; margin: .3em 0; }
+.task-body li::marker { color: #748091; }
+.task-body strong { font-weight: 600; color: #293c53; }
+.task-body code { font-family: Consolas, "Cascadia Code", monospace; font-size: .9em; padding: .1em .3em; background: #f3f6f9; border-radius: 4px; }
+.task-body pre { margin: 0 0 1em; padding: 14px 16px; background: #f3f6f9; border-radius: 6px; white-space: pre-wrap; }
+.task-body pre code { padding: 0; background: none; }
 .task-badge { color: var(--muted); margin-left: 10px; font-weight: 400; font-size: 11px; }
 .health-line { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: -3px 0 17px; color: #66798b; font-size: 11px; }
 .health-line span + span { border-left: 1px solid #dbe2e9; padding-left: 18px; }
@@ -200,6 +214,9 @@ tbody tr:last-child > * { border-bottom: 0; }
   .preview-host, .viewer-mount:not(:empty) { height: 460px; }
 }
 @media (max-width: 760px) {
+  .task-prompt { padding: 18px; }
+  .task-body { font-size: 14px; line-height: 1.75; }
+  .task-body h4 { font-size: 19px; }
   .task-summary { gap: 8px; margin-bottom: 16px; }
   .task-summary-item { flex-wrap: wrap; gap: 4px 10px; padding: 9px 12px; }
   .task-summary-item > span:last-child { flex-basis: 100%; }

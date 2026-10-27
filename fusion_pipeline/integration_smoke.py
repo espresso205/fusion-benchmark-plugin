@@ -22,7 +22,9 @@ def create_archive_script(f3d_path: str | os.PathLike[str]) -> str:
         raise ValueError("Smoke archive path must be absolute text without NUL")
     if Path(value).suffix.lower() != ".f3d":
         raise ValueError("Smoke archive must have the .f3d extension")
-    return _COMMON + "ARCHIVE = {!r}\n\n".format(value) + _CREATE
+    # Match trusted_reopen_script's ASCII transport: the bridge can misdecode
+    # raw Unicode and double backslashes before executing the native script.
+    return _COMMON + "ARCHIVE = bytes.fromhex('{}').decode('utf-8')\n\n".format(value.encode('utf-8').hex()) + _CREATE
 
 
 _CREATE = '''def run(_context: str):

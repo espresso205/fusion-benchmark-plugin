@@ -1,6 +1,6 @@
 # Fusion Benchmark Plugin
 
-版本 **v4.0.0**。为 OpenCode、Codex、Claude Code 提供统一 MCP 管理入口：每题启动独立 CLI 会话，通过现有 Fusion MCP 建模，冻结 F3D，再由维护端独立重开、导出可信 STEP 并执行 v4 几何符合评分并单列坐标诊断。
+版本 **v4.0.0**。为 OpenCode、Codex、Claude Code 提供统一 MCP 管理入口：每题启动独立 CLI 会话，选择 Fusion 或 SolidWorks 建模，冻结原生文件，再由维护端独立重开、导出可信 STEP，执行 v4 几何符合评分并单列坐标诊断。Fusion 提交 F3D；SolidWorks 提交自包含 SLDPRT 与明确配置，不支持装配文件。
 
 本仓库包含完整流水线、评测核心、测试、技能说明和便携包构建脚本。源码仓库不包含 Python 运行时、Fusion、CLI 可执行文件、模型账号或题目数据。
 
@@ -10,6 +10,7 @@
 - [已有结果的指标消融分析](docs/ABLATION.md)
 - [HTML 结果报告与三维对比](docs/HTML_REPORT.md)
 - [PNG/JPEG、多图与混合建模输入](docs/INPUT_FORMATS.md)：显式清单、冻结哈希和原生 MCP 图片；旧 TASK/DXF 目录继续支持。
+- [Fusion / SolidWorks 后端配置与验收边界](docs/CAD_BACKENDS.md)：统一 Gateway、版本化原生合同与维护端可信导出。
 - [维护端技能](agent/fusion-benchmark/SKILL.md) · [候选建模技能](agent/fusion-modeling/SKILL.md)
 - [配置示例](examples/fusion_pipeline_config.json) · [依赖与许可](docs/DEPENDENCIES.md)
 - 独立评测器：[espresso205/fusion-step-evaluator](https://github.com/espresso205/fusion-step-evaluator)

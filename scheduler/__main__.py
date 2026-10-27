@@ -19,6 +19,8 @@ def main(argv=None):
     create = subs.add_parser("create-run", help="create a unique run; existing directories are rejected")
     create.add_argument("root", type=Path)
     create.add_argument("run_id", nargs="?")
+    create.add_argument('--cad-backend', choices=('fusion', 'solidworks'))
+    create.add_argument('--cad-config-sha256')
     status = subs.add_parser("status", help="revalidate evidence and rebuild summary/events from checkpoint")
     status.add_argument("run", type=Path)
     register = subs.add_parser("register-case", help="snapshot this case's public inputs and bind its contract")
@@ -43,7 +45,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.cmd == "create-run":
-            print(Scheduler(args.root).create_run(args.run_id))
+            print(Scheduler(args.root).create_run(args.run_id, cad_backend=args.cad_backend,
+                                                  cad_config_sha256=args.cad_config_sha256))
             return 0
         if args.cmd == "verify":
             scheduler = Scheduler.load(args.root, args.run_id)

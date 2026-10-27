@@ -4,3 +4,5 @@
 ezdxf==1.4.4
 # Public PNG/JPEG decoding and EXIF orientation; already pinned in portable lock.
 pillow==12.2.0
+# Validate the actual discovered native CAD tool schemas before forwarding calls.
+jsonschema==4.26.0

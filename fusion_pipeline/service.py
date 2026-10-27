@@ -92,6 +92,7 @@ class ManagementService:
              {"provider": {"type": "string", "enum": ["opencode", "codex", "claude"]}, "model": {"type": "string"},
               "protocol":{"type":"string","enum":["fusion-step-adapted-v3.0","fusion-step-adapted-v4.0"]},
               "coordinate_mode":{"type":"string","enum":["geometry","strict"]},
+              "cad_backend":{"type":"string","enum":["fusion","solidworks"]},
               "case_ids": {"type": "array", "items": {"type": "string"}}, "preflight_only": {"type": "boolean"}}),
         tool("status", "Read a managed job's state.", {"run_id": {"type": "string"}}, ("run_id",), True),
         tool("cancel", "Request cancellation. Unknown Fusion operations retain the lease for reconciliation.", {"run_id": {"type": "string"}}, ("run_id",)),
@@ -113,7 +114,9 @@ class ManagementService:
     def call(self, name, arguments):
         from .adapters import capabilities, probe
         if name == "capabilities":
+            from .cad import cad_capabilities
             return {"providers": capabilities(), "budget_scope": "mcp_tools_scope", "fusion_lease": "whole_attempt_serial",
+                    "cad": cad_capabilities(self.config or {}),
                     "isolation": "trusted_internal_same_account", "configured": self.config is not None,
                     "default_scoring_protocol":"fusion-step-adapted-v4.0", "default_coordinate_mode":"geometry",
                     "configured_scoring_protocol":(self.config or {}).get('protocol'),
@@ -121,7 +124,18 @@ class ManagementService:
                     "supported_scoring_protocols":["fusion-step-adapted-v3.0","fusion-step-adapted-v4.0"],
                     "credentials_returned": False, "preflight_calls_models_or_fusion": False}
         if name == "preflight":
+            from .cad import cad_capabilities
+            from .runner import validate_run_configuration
+            validation = {'status': 'not_configured'}
+            if self.config is not None:
+                try:
+                    validate_run_configuration(self.config)
+                    validation = {'status': 'passed'}
+                except ValueError as error:
+                    validation = {'status': 'failed', 'reason': str(error)}
             return {"configured": self.config is not None,
+                    "cad": cad_capabilities(self.config or {}),
+                    'configuration_validation': validation,
                     "providers": [probe(p, (self.config or {}).get(p)) for p in ("opencode", "codex", "claude")],
                     "model_and_fusion_connectivity": "not_tested", "strict_gt_isolation": False}
         if name == "start_run":
@@ -154,7 +168,14 @@ class ManagementService:
             preflight_only = arguments.get("preflight_only", False)
             if type(preflight_only) is not bool:
                 raise ValueError("invalid preflight flag")
+            if arguments.get('cad_backend', config.get('cad_backend', 'fusion')) == 'solidworks' and config.get('execution_backend', 'unified_gateway') != 'unified_gateway':
+                raise ValueError('SolidWorks requires execution_backend=unified_gateway')
             config.update(provider=provider, model=model, execution_backend="unified_gateway")
+            if 'cad_backend' in arguments:
+                config['cad_backend'] = arguments['cad_backend']
+            from .runner import validate_run_configuration
+            normalized, _ = validate_run_configuration(config)
+            config.update(normalized)
             if cases is not None:
                 config["case_ids"] = cases
             identifier = uuid.uuid4().hex
@@ -162,7 +183,8 @@ class ManagementService:
             folder.mkdir(parents=True, exist_ok=False)
             config["cancel_file"] = str(folder / "cancel.request")
             atomic(folder / "config.json", config)
-            atomic(folder / "job.json", {"run_id": identifier, "state": "starting", "provider": provider, "model": model})
+            atomic(folder / "job.json", {"run_id": identifier, "state": "starting", "provider": provider, "model": model,
+                                        'cad_backend': config['cad_backend'], 'cad_config_sha256': config['cad_config_sha256']})
             command = [config.get("python", sys.executable), "-B", "-m", "fusion_pipeline.cli", "_run-job", "--job", str(folder)]
             if preflight_only:
                 command.append("--preflight-only")
@@ -170,7 +192,8 @@ class ManagementService:
             with (folder / "coordinator.log").open("xb") as log:
                 subprocess.Popen(command, cwd=Path(__file__).resolve().parents[1], stdin=subprocess.DEVNULL,
                                  stdout=log, stderr=subprocess.STDOUT, **options)
-            return {"run_id": identifier, "state": "starting", "provider": provider, "model": model}
+            return {"run_id": identifier, "state": "starting", "provider": provider, "model": model,
+                    'cad_backend': config['cad_backend'], 'cad_config_sha256': config['cad_config_sha256']}
         folder = self._job(arguments["run_id"])
         if name == "cancel":
             (folder / "cancel.request").touch(exist_ok=True)
@@ -181,10 +204,13 @@ class ManagementService:
             file = run_path / "pipeline-status.json"
             if file.exists():
                 current = json.loads(file.read_text(encoding="utf-8"))
+                from src.report_data import project_cad_provenance
+                status.update(project_cad_provenance(current))
                 terminal_failure = status.get("state") in ("failed", "blocked")
                 status.update(state=status["state"] if terminal_failure else current["state"],
                               batch_complete=False if terminal_failure else current.get("batch_complete", False),
-                              cases=[{k: r[k] for k in ("case_id", "state", "final_score") if k in r} for r in current.get("cases", [])])
+                              cases=[{**{k: r[k] for k in ("case_id", "state", "final_score") if k in r},
+                                      **project_cad_provenance(r)} for r in current.get("cases", [])])
             if name == "results":
                 if (run_path / "report.md").is_file():
                     status["report"] = str(run_path / "report.md")

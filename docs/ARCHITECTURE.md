@@ -4,10 +4,10 @@
 flowchart LR
     A[受信任协调器 / MCP 管理] --> B[每题独立 CLI 会话]
     B --> C[单题 Worker Gateway]
-    C --> D[已有 Fusion MCP 桥接]
-    D --> E[Fusion 原生建模与 F3D 提交]
+    C --> D[本次选定的 Fusion 或 SolidWorks 适配器]
+    D --> E[原生建模与 F3D / SLDPRT 提交]
     E --> F[冻结提交字节与依赖证据]
-    F --> G[受信任 Fusion 重开 / STEP 导出]
+    F --> G[维护端由同一 CAD 独立重开 / STEP 导出]
     G --> H[v4 评测快照]
     H --> I[固定权重报告与覆盖率]
     J[私有 GT / 冻结标注] --> H
@@ -21,9 +21,13 @@ flowchart LR
 
 `visual-check` 是显式调用模型的独立验收，使用正式Gateway读取两张随机图、识别内容并保留输入/返回图哈希和回答。它不调用Fusion；管理 `preflight` 仍只检查本地配置与CLI，不宣称模型视觉支持。`run --preflight-only` 保留原真实模型+Fusion只读连通性检查。
 
+`cad_backend` 在启动时冻结。Fusion 使用已有 HTTP MCP；SolidWorks 使用接收方安装的 stdio bundle 和独立运行时，经 `cad.py` / `solidworks.py` 接入 Gateway。两者共享串行桌面租约，不并行建模，也不在同一尝试中切换。SolidWorks 仅支持自包含 Part，提交时绑定明确配置，详见[后端合同](CAD_BACKENDS.md)。
+
 ## 冻结与可信导出
 
 候选提交 `submission.f3d`。调度器冻结字节、检查公开输入身份和依赖证据；维护端使用 `fusion_scripts.py` 在 Fusion 中独立重开归档，检查设计和实体健康状况，再导出 STEP。候选自行写出的 STEP 只属于候选材料，不会凭文件名获得可信导出身份。
+
+SolidWorks 对应提交 `submission.SLDPRT` 与 configuration。原生保存回执和描述符绑定文件字节、Part 类型、配置与当前实例；维护端 `solidworks_helper.py` 在独占暂存副本上重开，检查配置、依赖、特征和实体健康，导出 STEP 后再用独立几何解析确认单位、实体数、包围盒与体积。候选进程树、未决 CAD 请求和冻结身份都通过检查后，才允许进入可信出口。
 
 Fusion MCP 请求超时、取消或执行状态未知时，保留锁及请求证据，停止继续建模；结束 CLI 进程不证明 Fusion 后台操作停止。恢复需要操作员确认当前桌面与请求状态，不能盲目重发同一尝试。
 

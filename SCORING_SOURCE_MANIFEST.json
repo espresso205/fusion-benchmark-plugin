@@ -17,16 +17,16 @@
       "sha256": "d7ce22b5fb7b94e70d7495bd8db2860ef05e7d17076af8179a4f49b79b6029b5"
     },
     "scheduler/__main__.py": {
-      "bytes": 3837,
-      "sha256": "68d7307df2153e2d92a8fa2b9f7b78382bf630d91963fee84863e0aac96e6128",
-      "previous_sha256": "5dec6311b6b70f13cae46f14f836b36d5f86bda6c9cc62cb376e9ae72f37984c",
-      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged"
+      "bytes": 4081,
+      "sha256": "20d504d1e80f7027bd2e32e2766ed7db58ea5d61f840c9adb1a83cb07d16065a",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged",
+      "previous_sha256": "68d7307df2153e2d92a8fa2b9f7b78382bf630d91963fee84863e0aac96e6128"
     },
     "scheduler/core.py": {
-      "bytes": 28748,
-      "sha256": "0cf164f5156c647bb06ceacaadeaea5bf4078cf30c6bb5f8a3dc2ab1f8d14561",
-      "previous_sha256": "bbe5366a648c0dd356e3dd43579bc2b9f6a933f72aa6560322a366d84991174c",
-      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged"
+      "bytes": 31961,
+      "sha256": "9f803f3f1439bcdd9d4af5e058743e27f9536818e67b69c5371aad768d7edb0a",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged",
+      "previous_sha256": "0cf164f5156c647bb06ceacaadeaea5bf4078cf30c6bb5f8a3dc2ab1f8d14561"
     },
     "src/__init__.py": {
       "bytes": 80,
@@ -172,27 +172,28 @@
       "source": "local v4 adaptation"
     },
     "fusion_pipeline/cli.py": {
-      "bytes": 4700,
-      "sha256": "3105d8334c0d7ab1386bc32828d77043427d7603e857dc4148d746a974e155e5",
-      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged",
-      "previous_sha256": "ce427d0e8d3212bc880122bad48cca5dde8b52119b7b015121927a72ac1efffe"
+      "bytes": 5618,
+      "sha256": "50d42d1b30f991ac7998848ffb91a914c515511557f2ead6d8a4d40fc306c70a",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged",
+      "previous_sha256": "3105d8334c0d7ab1386bc32828d77043427d7603e857dc4148d746a974e155e5"
     },
     "fusion_pipeline/reporting.py": {
-      "bytes": 5830,
-      "sha256": "026db803cddd645f5905510fc500127f5c1211c1f3fc05e99067c2e63b60357e",
-      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged",
-      "previous_sha256": "56c6432860833b1516bd833b4821c28f812b004135b6f1c78ebca3c7092941aa"
+      "bytes": 7939,
+      "sha256": "81f0b99826ab1b585688cc429be3351e73aca366cd6b03388ae9083df75f16bb",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged",
+      "previous_sha256": "026db803cddd645f5905510fc500127f5c1211c1f3fc05e99067c2e63b60357e"
     },
     "fusion_pipeline/runner.py": {
-      "bytes": 68127,
-      "sha256": "a332ab640ab74fcff8bb675d2c5bb1b7b64cbd8f82c06c945793f7cefad503cc",
-      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged",
-      "previous_sha256": "4f0b9a9f62d718321712bcfe61945f89fde14ffb26a23eafbb10243af01a4077"
+      "bytes": 98860,
+      "sha256": "7e954a29c6e724cd73050316c69805fada4dc6b663f5acba4d90469ba8b9f6f4",
+      "source": "2026-10-27 reviewed UTF-8 child process fix: explicit UTF-8 scheduler/evaluator output; preserve inherited runtime settings and portable isolated runtime support; scoring algorithms and weights unchanged",
+      "previous_sha256": "83e4d22e1d673a489f61b81c0390363009a0842f4db00e03163ce8edb108cf82"
     },
     "fusion_pipeline/service.py": {
-      "bytes": 15456,
-      "sha256": "bcc5c83f179127474e79406a1a84eaf0d12f18638d83a430431d79a019d6e4f7",
-      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+      "bytes": 17191,
+      "sha256": "d2f31917ba5333027b3a907075fd49689a597293acd34367ab042c791cffefa9",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged",
+      "previous_sha256": "bcc5c83f179127474e79406a1a84eaf0d12f18638d83a430431d79a019d6e4f7"
     },
     "render_report.py": {
       "bytes": 1606,
@@ -215,9 +216,10 @@
       "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
     },
     "report_assets/report.css": {
-      "bytes": 22161,
-      "sha256": "162817788a4e1da885f5d7366e9a66dfd32da2a2a6f3cc60ac2c9506bfd6d5b8",
-      "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
+      "bytes": 23392,
+      "sha256": "d0585f2b16e1b51c82104533cc2a010f3372f91e45b4d4bfd8aba0464522658b",
+      "source": "2026-10-28: simplify visible report metadata and format task prose; scoring and embedded evidence unchanged",
+      "previous_sha256": "162817788a4e1da885f5d7366e9a66dfd32da2a2a6f3cc60ac2c9506bfd6d5b8"
     },
     "report_assets/report.js": {
       "bytes": 21407,
@@ -265,14 +267,16 @@
       "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
     },
     "src/html_reporting.py": {
-      "bytes": 35221,
-      "sha256": "aee00af2d2415eb72f1a44238e190bd85b0e2b2ffe59bfd7373c5d13c9bda900",
-      "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
+      "bytes": 39222,
+      "sha256": "c9d629e966a54ca1c3a93983af2c0c8a9c060dab2c43df036dfe501caa9e5857",
+      "source": "2026-10-28: simplify visible report metadata and format task prose; scoring and embedded evidence unchanged",
+      "previous_sha256": "f5401c00c4c0cb8d6ee6fdb20c4fcc7499f1a8f5d69ba4b3709f34cf4fa49106"
     },
     "src/report_data.py": {
-      "bytes": 33269,
-      "sha256": "c01a078dd78673951f67ac1dcc966e3e40a577e34f8e41c26ad5d2504da578d6",
-      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+      "bytes": 35308,
+      "sha256": "7e7c5bada81e4fb29e034195d0f5860356e4dd7ab9916b1bd2e17d910820250a",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged",
+      "previous_sha256": "c01a078dd78673951f67ac1dcc966e3e40a577e34f8e41c26ad5d2504da578d6"
     },
     "src/report_inputs.py": {
       "bytes": 12699,
@@ -309,6 +313,66 @@
       "sha256": "0ea368c0b3e282fe802c7ef7271d12fb5f8d24b35189009042ec3d43fd28debf",
       "previous_sha256": "2034f70d7f3de2cc426b219293f36030b0df37edab48a0d9cf4202640f88d2f7",
       "source": "2026-10-27: explicit direct/parametric Fusion design health checks and ASCII UTF-8 hex path transport; scoring algorithms and weights unchanged"
+    },
+    "agent/solidworks-modeling/SKILL.md": {
+      "bytes": 7675,
+      "sha256": "d43042d6cd5c4538a9fc3215967e8f8200722eb7b2f723a43d4bd29dab123a18",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
+    },
+    "fusion_pipeline/adapters.py": {
+      "bytes": 26809,
+      "sha256": "1a93b6b61a4f741c23de17ad8696b886b53732ddca0675e83c7b4841132c7cc2",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
+    },
+    "fusion_pipeline/cad.py": {
+      "bytes": 9661,
+      "sha256": "4744222defb85e7893d0e64db99b2ac3eb3282759769f087b21a560a72faef9a",
+      "source": "2026-10-27 final reviewed multi-CAD freeze: preserve unknown outcomes across Fusion/SolidWorks transport, guarded native save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged",
+      "previous_sha256": "7c94f15ea6ea48ff2c7a366eccc1f2fc0353ba9d3d8ea126796e1f626943e0ec"
+    },
+    "fusion_pipeline/cad_probe.py": {
+      "bytes": 5845,
+      "sha256": "1477a94e17a9098c29cc196adc398f96bde5c7e8549d4171c161d71c3e87ceef",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
+    },
+    "fusion_pipeline/integration_smoke.py": {
+      "bytes": 6790,
+      "sha256": "cba7fcaa59388a226d2c772044391b6cbd9e37623b247a53dd7a295f23011068",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
+    },
+    "fusion_pipeline/native_contract.py": {
+      "bytes": 5387,
+      "sha256": "d4670cfcb196856f498b8f17a8e6d181f0f49e88fb74ab9438a1c9c8011ccd11",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
+    },
+    "fusion_pipeline/solidworks.py": {
+      "bytes": 29774,
+      "sha256": "8e585735c0beadb43959be1681c0d84d0c5758d3311b3be70e9500d27710feae",
+      "source": "2026-10-28 reviewed completed health-workflow classification: accept geometry mismatch only after all nine native checks and rebuild complete with bound runtime and vendor identity; preserve unknown-outcome blocking and audit evidence; scoring algorithms and weights unchanged",
+      "previous_sha256": "81716d68e7eb825b44812540895e1b39a4a0283be7214bfa68a6ad074aa7e648"
+    },
+    "fusion_pipeline/solidworks_helper.py": {
+      "bytes": 41254,
+      "sha256": "c5945844ef49d2a7daf3aa1494719d5fa33736726e05ae9c73a1cdde91cd9531",
+      "source": "2026-10-28 reviewed CAD cleanup and deadline accounting: distinguish reused process identities and reserve reconciliation time; preserve unknown-outcome blocking and audit evidence; scoring algorithms and weights unchanged",
+      "previous_sha256": "cbb5761a318e1ee28b63c51b91bd2216c7e1b750ce1f434626bae2184ca835ab"
+    },
+    "fusion_pipeline/stdio_mcp.py": {
+      "bytes": 8918,
+      "sha256": "260bb55cf026376efc1ae362b327412fa08fc3314eaa38439b6d7b69069bd2ba",
+      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
+    },
+    "fusion_pipeline/worker_gateway.py": {
+      "bytes": 54414,
+      "sha256": "b15b5aba13abe99663ff7135e4713bbb8578a093e9ab0ecc914b0618d9ea1332",
+      "source": "2026-10-28 reviewed CAD cleanup and deadline accounting: distinguish reused process identities and reserve reconciliation time; preserve unknown-outcome blocking and audit evidence; scoring algorithms and weights unchanged",
+      "previous_sha256": "151ac2597b225c9c0ee2ef881a04be957264fd16d9522cb05f188234d22f3217"
+    },
+    "fusion_pipeline/mcp.py": {
+      "bytes": 6121,
+      "sha256": "05f42f9a692521c57f57a70c0d2bc4d50833ebd1b4a8fe8f1dbb30452998d8de",
+      "previous_sha256": "773b62f7d970687b85851d46f9a773869ccde54a4064bad755c4a4bc4248c851",
+      "source": "2026-10-27 final reviewed multi-CAD freeze: preserve unknown outcomes across Fusion/SolidWorks transport, guarded native save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
     }
   },
   "html_report_revision": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged",

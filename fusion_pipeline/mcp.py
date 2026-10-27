@@ -5,6 +5,8 @@ import urllib.parse
 import urllib.request
 import uuid
 
+from .stdio_mcp import CadCallUnknown
+
 
 def resolved_config(cli):
     result = subprocess.run([str(cli), "debug", "config"], capture_output=True,
@@ -27,6 +29,9 @@ class FusionMCP:
                         **server.get("headers", {})}
         self.audit = audit
         self.timeout = timeout
+        self.unknown = False
+        self._closed = False
+        self.cleanup_evidence = []
         self.tools = {}
         self.server = self.rpc("initialize", {"protocolVersion": "2025-03-26",
                                "clientInfo": {"name": "fusion-benchmark-runner", "version": "0.1.0"},
@@ -37,6 +42,10 @@ class FusionMCP:
             raise ValueError("configured Fusion MCP has no execute tool")
 
     def rpc(self, method, params=None, *, notification=False):
+        if self.unknown:
+            raise CadCallUnknown('Fusion transport cannot continue; reconciliation required')
+        if self._closed:
+            raise RuntimeError('Fusion transport is closed; no request dispatched')
         request_id = None if notification else uuid.uuid4().hex
         body = {"jsonrpc": "2.0", "method": method}
         if request_id is not None:
@@ -65,15 +74,31 @@ class FusionMCP:
             if self.audit:
                 self.audit({"event": "mcp_request_completed", "request_id": request_id, "method": method})
             return data["result"]
-        except Exception:
+        except BaseException as error:
+            self.unknown = True
             if self.audit:
-                self.audit({"event": "mcp_request_unknown", "request_id": request_id, "method": method})
+                try:
+                    self.audit({"event": "mcp_request_unknown", "request_id": request_id, "method": method})
+                except Exception:
+                    # Audit storage cannot turn an unconfirmed call into a known
+                    # failure or erase the in-memory marker used by lease cleanup.
+                    pass
+            if not isinstance(error, Exception):
+                raise
             # Don't emit URL/headers, which may contain connection credentials.
-            raise RuntimeError(f"MCP {method} did not return a confirmed result; reconciliation required") from None
+            raise CadCallUnknown(f"MCP {method} did not return a confirmed result; reconciliation required") from None
 
     def execute(self, script, *, readonly):
         return self.rpc("tools/call", {"name": "fusion_mcp_execute", "arguments": {
             "featureType": "script", "object": {"script": script, "readOnly": readonly}}})
+
+    def close(self):
+        # Local HTTP transport only: never close documents or terminate the CAD
+        # server to obtain a clean result. Unknown state survives repeated close.
+        self._closed = True
+        if self.unknown:
+            raise CadCallUnknown('Fusion request completion is unknown; reconciliation required')
+        return {'cleanup': self.cleanup_evidence, 'reconciliation_required': False}
 
 
 def extract_result(result):

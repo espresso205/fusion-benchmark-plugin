@@ -8,6 +8,40 @@ GENERATION_FILE = 'html-report-generation.json'
 SAFE_FAILURE = 'HTML report generation failed; completed scoring results are unchanged.'
 
 
+def trusted_export_metadata(report):
+    """Display only measurements and checks present in the verified native report."""
+    result = {'status': report['status']}
+    native = report.get('native_reopen') or {}
+    policy = native.get('export_policy') or {}
+    if policy:
+        result.update(step_ap=policy.get('ap'), body_scope=policy.get('body_scope'))
+    geometry = (report.get('independent_verification') or {}).get('geometry') or {}
+    if geometry.get('working_unit'):
+        result['length_unit'] = geometry['working_unit']
+    if geometry.get('declared_length_units'):
+        result['declared_length_units'] = geometry['declared_length_units']
+    references = native.get('references') or {}
+    dependencies = native.get('dependencies') or report.get('dependencies') or {}
+    if references.get('complete') is True or dependencies.get('closed') is True:
+        result['dependency_status'] = 'self_contained_verified'
+    warnings = (native.get('health') or report.get('health') or {}).get('warnings')
+    if isinstance(warnings, list):
+        result['warnings'] = [{key: item[key] for key in ('name', 'message', 'health') if key in item}
+                              for item in warnings if isinstance(item, dict)]
+    for field, phase in (('open_warnings', 'native_reopen'), ('export_warnings', 'step_export')):
+        warning_policy = native.get(field)
+        if (not isinstance(warning_policy, dict) or warning_policy.get('status') != 'allowed'
+                or type(warning_policy.get('raw')) is not int or not isinstance(warning_policy.get('flags'), list)):
+            continue
+        for flag in warning_policy['flags']:
+            if (isinstance(flag, dict) and flag.get('classification') == 'allowed'
+                    and type(flag.get('bit')) is int and isinstance(flag.get('name'), str)
+                    and isinstance(flag.get('reason'), str)):
+                result.setdefault('warnings', []).append({'phase': phase, 'code': warning_policy['raw'],
+                    **{key: flag[key] for key in ('bit', 'name', 'classification', 'reason')}})
+    return result
+
+
 def frozen_report_inputs(pipeline):
     """Map the bound public snapshots to the existing display-only contract."""
     from .input_assets import read_asset, verify_manifest

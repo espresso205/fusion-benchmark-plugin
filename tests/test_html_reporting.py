@@ -45,6 +45,43 @@ def public_report():
 
 
 class HtmlTests(unittest.TestCase):
+    def test_task_prose_formats_structure_without_changing_evidence(self):
+        from src.html_reporting import render_html
+        data = public_report()
+        data['cases'][0]['prompt'] = ('# Rectangular block\r\n\r\nCreate one solid\r\n'
+            '20 × 10 × 5 mm block.\r\n\r\n## Constraints\r\n'
+            '- **No holes** or rounds.\r\n- Save `part.SLDPRT`.\r\n\r\n'
+            '3. Select the part.\r\n4. Submit it.\r\n\r\n'
+            '```text\r\nx = 20\r\ny = 10\r\n```')
+        before = copy.deepcopy(data)
+        html = render_html(data)
+        page = Page(html)
+        self.assertIn('<h4>Rectangular block</h4>', html)
+        self.assertIn('<p>Create one solid 20 × 10 × 5 mm block.</p>', html)
+        self.assertIn('<h5>Constraints</h5>', html)
+        self.assertIn('<li><strong>No holes</strong> or rounds.</li>', html)
+        self.assertIn('<code>part.SLDPRT</code>', html)
+        self.assertIn('<ol start="3">', html)
+        self.assertIn('<pre><code>x = 20\ny = 10</code></pre>', html)
+        self.assertEqual(json.loads(''.join(page.data)), before)
+        self.assertEqual(data, before)
+
+    def test_formatted_task_keeps_untrusted_html_and_urls_inert(self):
+        from src.html_reporting import render_html
+        data = public_report()
+        data['cases'][0]['prompt'] = ('# <img src=x onerror=alert(1)>\n\n'
+            '**<script>alert(2)</script>**\n\n'
+            '[open](javascript:alert(3))\n\n'
+            '```html\n</code><svg onload=alert(4)>\n```')
+        page = Page(render_html(data))
+        self.assertEqual(len(page.scripts), 2)
+        self.assertFalse(any(tag == 'svg' or 'onerror' in attrs or 'onload' in attrs
+                             or attrs.get('src') == 'x' for tag, attrs in page.tags))
+        self.assertFalse(any(attrs.get('href', '').startswith('javascript:') for _, attrs in page.tags))
+        self.assertIn('<script>alert(2)</script>', ''.join(page.text))
+        self.assertIn('</code><svg onload=alert(4)>', ''.join(page.text))
+        self.assertEqual(json.loads(''.join(page.data)), data)
+
     def test_score_colors_use_reference_cutoffs_without_grading_lower_bounds(self):
         from src.html_reporting import render_html
         data = public_report()

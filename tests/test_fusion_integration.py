@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import sys
+from unittest.mock import patch
 
 from test_fusion_scripts import Document, FusionDouble
 
@@ -21,6 +23,16 @@ class IntegrationSmokeTests(unittest.TestCase):
     def test_generated_script_compiles_with_quoted_absolute_path(self):
         script = self.api.create_archive_script(self.archive.with_name("quoted' smoke.f3d"))
         compile(script, "<fusion-integration-smoke>", "exec")
+
+    def test_archive_path_survives_bridge_unicode_and_backslash_transport(self):
+        archive = self.archive.parent / "中文 空格🧩" / "quoted' cube.f3d"
+        script = self.api.create_archive_script(archive)
+        transported = script.encode('utf-8').decode('latin-1').replace('\\', '\\\\')
+        app, namespace = FusionDouble(), {}
+        with patch.dict(sys.modules, {'adsk':app.adsk,'adsk.core':app.core,'adsk.fusion':app.fusion}):
+            exec(compile(transported,'<bridge-smoke-path>','exec'),namespace)
+        self.assertEqual(namespace['ARCHIVE'],str(archive))
+        self.assertTrue(script.isascii())
 
     def test_relative_path_is_rejected(self):
         with self.assertRaises(ValueError):

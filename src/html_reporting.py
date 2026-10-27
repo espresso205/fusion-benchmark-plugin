@@ -5,6 +5,7 @@ from html import escape
 import json
 import math
 from pathlib import Path
+import re
 import shutil
 from urllib.parse import quote
 
@@ -303,6 +304,74 @@ def input_materials_html(materials):
     return f'<details class="input-materials"><summary>输入资料 <span>{len(items)} 份</span></summary><div class="input-content">{"".join(parts)}</div></details>'
 
 
+def _prompt_inline(text):
+    """A small inert Markdown subset; raw HTML and links remain plain text."""
+    parts, offset = [], 0
+    for match in re.finditer(r'`([^`\n]+)`|\*\*([^*\n]+)\*\*', text):
+        parts.append(esc(text[offset:match.start()]))
+        tag, value = ('code', match[1]) if match[1] is not None else ('strong', match[2])
+        parts.append(f'<{tag}>{esc(value)}</{tag}>')
+        offset = match.end()
+    return ''.join(parts) + esc(text[offset:])
+
+
+def _prompt_html(text):
+    """Format task prose for reading without altering its original report data."""
+    parts, paragraph, items = [], [], []
+    list_tag, fence, code = None, None, []
+
+    def flush():
+        nonlocal list_tag
+        if paragraph:
+            parts.append('<p>' + _prompt_inline(' '.join(paragraph)) + '</p>')
+            paragraph.clear()
+        if items:
+            start = f' start="{items[0][0]}"' if list_tag == 'ol' else ''
+            entries = []
+            for i, (number, lines) in enumerate(items):
+                value = f' value="{number}"' if list_tag == 'ol' and number != items[0][0] + i else ''
+                entries.append(f'<li{value}>' + _prompt_inline(' '.join(lines)) + '</li>')
+            parts.append(f'<{list_tag}{start}>' + ''.join(entries) + f'</{list_tag}>')
+            items.clear()
+        list_tag = None
+
+    for raw in str(text).splitlines():
+        line = raw.strip()
+        if fence:
+            if re.fullmatch(re.escape(fence[0]) + '{' + str(len(fence)) + ',}', line):
+                parts.append('<pre><code>' + esc('\n'.join(code)) + '</code></pre>')
+                fence, code = None, []
+            else:
+                code.append(raw)
+            continue
+        opening = re.fullmatch(r'(`{3,}|~{3,})[^`~]*', line)
+        heading = re.match(r'^(#{1,6})\s+(.+)$', line)
+        item = re.match(r'^(?:[-+*]|(\d{1,9})[.)])\s+(.+)$', line)
+        if opening:
+            flush()
+            fence = opening[1]
+        elif not line:
+            flush()
+        elif heading:
+            flush()
+            level = min(len(heading[1]) + 3, 6)
+            parts.append(f'<h{level}>' + _prompt_inline(heading[2]) + f'</h{level}>')
+        elif item:
+            kind = 'ol' if item[1] else 'ul'
+            if paragraph or list_tag != kind:
+                flush()
+            list_tag = kind
+            items.append((int(item[1]) if item[1] else None, [item[2]]))
+        elif items:
+            items[-1][1].append(line)
+        else:
+            paragraph.append(line)
+    flush()
+    if fence:
+        parts.append('<pre><code>' + esc('\n'.join(code)) + '</code></pre>')
+    return '<div class="task-body">' + ''.join(parts) + '</div>'
+
+
 def _case_detail(row, index, mode, total):
     state, label = case_state(row)
     interval = row.get('score_interval')
@@ -311,10 +380,10 @@ def _case_detail(row, index, mode, total):
         range_text = f'<p class="notice">主分覆盖 {percent(row.get("measurement_weight_coverage"))}。总分下界 {score(interval[0])}，缺测项补全后可能为 {score(interval[0])}–{score(interval[1])} 分。该范围不是统计置信区间。</p>'
     initial_frame = default_frame(row)
     frames = f'<button data-frame="scoring" aria-pressed="{str(initial_frame == "scoring").lower()}">对齐后</button><button data-frame="world" aria-pressed="{str(initial_frame == "world").lower()}">原始坐标</button>'  if mode == 'geometry' else '<span>原始坐标计分</span>'
-    prompt = f'<section class="task-prompt"><h3>任务要求 <span class="task-badge">{TASKS[_task_type(row)]}</span></h3><p>{esc(row["prompt"])}</p></section>' if row.get('prompt') else ''
+    prompt = f'<section class="task-prompt"><h3>任务要求 <span class="task-badge">{TASKS[_task_type(row)]}</span></h3>{_prompt_html(row["prompt"])}</section>' if row.get('prompt') else ''
     return f'''<section class="case-detail" id="case-{index}" data-index="{index}" aria-label="题目 {esc(row.get('case'))}"><span id="fixture={esc(row.get('case'))}" class="fixture-anchor"></span>
 <nav class="detail-nav"><a href="#overview">返回列表</a><div><button data-step="-1">上一题</button><span class="detail-position" aria-live="polite">{index + 1} / {total}</span><button data-step="1">下一题</button></div></nav>
-<div class="detail-heading"><h2>题目 {esc(row.get('case'))} <span class="state {state}">{label}</span></h2>{_score_html(row, detail=True)}</div>{range_text}{prompt}{_health_html(row)}{_download_html(row.get('downloads'))}
+<div class="detail-heading"><h2>题目 {esc(row.get('case'))} <span class="state {state}">{label}</span></h2>{_score_html(row, detail=True)}</div>{_cad_html(row)}{range_text}{prompt}{_health_html(row)}{_download_html(row.get('downloads'))}
 <section class="visual-panel"><div class="viewer-toolbar"><div class="frame-tabs" role="group" aria-label="模型坐标">{frames}</div><div class="modes"><button data-mode="split" aria-pressed="true">并排</button><button data-mode="overlay" aria-pressed="false">透明叠加</button><button data-mode="difference" aria-pressed="false">差异着色</button><button data-mode="candidate" aria-pressed="false">生成模型</button><button data-mode="reference" aria-pressed="false">标准答案</button></div><div class="view-buttons"><button data-view="iso" aria-pressed="true">等轴</button><button data-view="front" aria-pressed="false">前视</button><button data-view="top" aria-pressed="false">俯视</button><button data-view="right" aria-pressed="false">右视</button><button data-reset>重置</button></div></div>
 <div class="comparison-labels"><span>生成模型</span><span>标准答案</span></div><div class="preview-host">{_preview(row, default_frame(row))}</div><div class="viewer-mount"></div>
 <div class="opacity-controls" hidden><label>生成模型透明度 <input data-opacity="candidate" type="range" min="0.05" max="1" step="0.05" value="0.65"></label><label>标准答案透明度 <input data-opacity="reference" type="range" min="0.05" max="1" step="0.05" value="0.35"></label></div>
@@ -344,6 +413,26 @@ def _analysis_html(analysis):
     return f'<p>固定 {cohort.get("case_count", 0)} 个主指标完整的案例，比较移除指标后的平均分变化。</p><div class="table-scroll"><table><thead><tr><th>设置</th><th>权重处理</th><th>平均分 /100</th><th>相对完整指标</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div><p class="muted">归一化后的升降反映各指标对当前样本的影响。不同题目的分数比较不代表模型排行榜。</p>'
 
 
+def _cad_html(value, *, include_backend=False):
+    """Show useful context; technical provenance stays in the embedded data."""
+    export = value.get('trusted_export') or {}
+    fields = []
+    if include_backend and value.get('cad_backend'):
+        backend = value['cad_backend']
+        fields.append(('建模软件', {'solidworks': 'SolidWorks', 'fusion': 'Autodesk Fusion'}.get(backend, backend)))
+    stage = value.get('failure_stage')
+    if stage:
+        stages = {'preparation': '准备', 'preflight': '环境检查', 'modeling': '建模',
+                  'trusted_export': '模型导出', 'evaluation': '评分', 'scoring': '评分'}
+        fields.append(('失败阶段', stages.get(stage, stage)))
+    items = [f'<span>{esc(label)}：{esc(item)}</span>' for label, item in fields if item is not None]
+    for warning in export.get('warnings') or []:
+        if warning.get('classification') == 'allowed':
+            phase = {'native_reopen': '模型打开', 'step_export': '模型导出'}.get(warning.get('phase'), 'CAD')
+            items.append(f'<span>{phase}提示：{esc(warning.get("reason") or warning.get("name"))}</span>')
+    return '<div class="health-line">' + ''.join(items) + '</div>' if items else ''
+
+
 def render_html(data):
     """Static results remain readable without JavaScript, HTTP or WebGL."""
     summary, cases, mode = data.get('summary', {}), data.get('cases', []), data.get('coordinate_mode', 'geometry')
@@ -365,7 +454,7 @@ def render_html(data):
     mode_note = '刚体对齐后比较几何，坐标差异单独查看' if mode == 'geometry' else '使用原始坐标比较几何'
     return f'''<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(data.get('run_name'))} - CAD 评测结果</title><link rel="stylesheet" href="assets/report.css"></head>
-<body><main><header class="report-header"><div class="report-heading"><h1>评测结果：{esc(data.get('run_name'))}</h1><p class="subtitle">{mode_note}</p></div><div class="summary-line">{stat_html}</div>{_download_html(data.get('downloads'), batch=True)}</header>
+<body><main><header class="report-header"><div class="report-heading"><h1>评测结果：{esc(data.get('run_name'))}</h1><p class="subtitle">{mode_note}</p></div>{_cad_html(data, include_backend=True)}<div class="summary-line">{stat_html}</div>{_download_html(data.get('downloads'), batch=True)}</header>
 <nav class="page-nav"><a href="#overview">案例列表</a><a href="#analysis">评测分析</a></nav>
 <section id="overview" class="overview">{_task_summary(cases)}<div class="filters"><input aria-label="搜索题号或任务" id="case-search" type="search" placeholder="搜索题号或任务要求" autocomplete="off"><select aria-label="筛选任务类型" id="task-filter"><option value="all">全部任务</option><option value="generation">生成</option><option value="editing">编辑</option><option value="unknown">未标注</option></select><select aria-label="筛选状态" id="case-filter"><option value="all">全部状态</option><option value="measured">已评分</option><option value="lower_bound">缺测下界</option><option value="invalid">模型无效</option><option value="incomplete">验证未完成</option><option value="pipeline">未评分</option><option value="integrity">结果无法核验</option></select><select aria-label="排序" id="case-sort"><option value="case">按题号</option><option value="desc">分数从高到低</option><option value="asc">分数从低到高</option></select><span id="visible-count">{len(cases)} 个案例</span></div>
 <p class="list-note">点击查看模型对比与各项分数。均分仅统计参与评分的案例，包含缺测下界。</p>{_score_legend()}<div class="case-grid">{''.join(cards)}</div><p id="empty-filter" hidden>没有符合筛选的案例。</p></section>

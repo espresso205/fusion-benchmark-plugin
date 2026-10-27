@@ -10,6 +10,8 @@ python -B scripts/build_portable_plugin.py --python (Get-Command python).Source 
 
 输出必须是尚不存在的新目录。构建器核对依赖版本及安装 RECORD 哈希，按明确白名单收集源码、标准库和依赖文件，不复制整个虚拟环境。它包含发布文档、通用建模技能、示例配置和版本文件。评分算法文件不在构建中改写。
 
+多 CAD 适配模块、stdio 客户端、维护端 SolidWorks helper、原生合同和 SolidWorks 公开建模技能也必须进入源码白名单。SolidWorks 主程序与第三方 bundle 由接收方单独安装，不进入便携包；适配器只保存可复核的版本和来源摘要。普通预检不调用 CAD，实际桥接与真实几何验证应单独执行并留存。
+
 HTML 报告的两个命令入口、九个 `src/` 模块和九个 `report_assets/` 文件均列入构建白名单。CADViewer 适配代码、Three.js 0.160.0、`VIEWER_SOURCES.json` 及 `report_assets/licenses/` 下两份 MIT 许可随包保留，详见 [第三方说明](../THIRD_PARTY_NOTICES.md)。评测器快照递归收集 `src/` 中的 Python 模块，并显式收集九个显示资源文件；预览生成使用已有 OCP/VTK 依赖。生成的 HTML、GT 模型及预览属于维护端运行结果，不进入通用分发包。
 
 构建失败保留 `INCOMPLETE`；完整性检查不会接受此标记。成功后输出 `PACKAGE_MANIFEST.json`、`SHA256SUMS`、`runtime.lock.json`、依赖许可清单以及可选 ZIP 与独立 SHA256。

@@ -60,6 +60,28 @@ class CreateConfigTests(unittest.TestCase):
         self.assertNotEqual(result.returncode,0)
         self.assertFalse(target.exists())
 
+    def test_solidworks_needs_no_fusion_url_and_keeps_strict_gate(self):
+        target = self.root / 'sw.json'
+        args = [sys.executable, '-B', str(SCRIPT), '--output', str(target),
+                '--provider', 'claude', '--model', 'example/model', '--cli-executable', sys.executable,
+                '--questions-root', str(self.root/'public'), '--private-cases', str(self.root/'cases.json'),
+                '--runs-root', str(self.root/'runs'), '--private-runs-root', str(self.root/'private'),
+                '--cad-backend', 'solidworks', '--solidworks-bundle', str(self.root/'bundle')]
+        result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(target.read_text(encoding='utf-8'))
+        self.assertEqual(config['cad_backend'], 'solidworks')
+        self.assertNotIn('fusion_connection', config)
+        self.assertNotIn('fusion_skill', config)
+        self.assertTrue(config['strict_tool_isolation'])
+        self.assertEqual(config['solidworks']['bundle'], str((self.root/'bundle').resolve()))
+
+    def test_conflicting_backend_connections_fail_before_output(self):
+        result, target = self.generate('claude', '--cad-backend', 'solidworks',
+                                       '--solidworks-bundle', str(self.root/'bundle'))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(target.exists())
+
 
 if __name__ == '__main__':
     unittest.main()
