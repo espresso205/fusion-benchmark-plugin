@@ -36,7 +36,9 @@ python -B scripts/create_config.py `
 
 默认生成 `strict_tool_isolation=true`。当前 Codex 适配器不能禁用全部原生工具，因此 `--provider codex` 默认报错且不写配置。如果组织者明确接受在受信任同账号环境中让原生工具仍可用，可在上述生成命令中改用 Codex、对应可执行文件/模型，并显式添加 `--allow-native-tools`；该参数生成 `strict_tool_isolation=false`。要求严格工具隔离时使用支持它的其他适配器。此选择不建立 OS 沙箱，模型或 Fusion 脚本仍受同账号文件权限约束；不得将宽松配置视为私有 GT 隔离保证。
 
-公开输入按 `questions_root/Qxx/TASK.md` 与 `drawing.dxf` 组织。维护端私有 `cases.json` 的 `cases` 数组必须包含 `case`、`gt`、`annotations` 和 `expected_hashes.gt/annotations`；路径必须绝对化，标注的 `gt_sha256` 需匹配对应 GT。[数据仓库](https://github.com/espresso205/fusion-benchmark-dataset)提供 `python scripts/prepare_config.py --output local/private_cases.json`，可用 `--cases Q01 Q02` 选题；把其生成文件路径传给本生成器的 `--private-cases`。私有配置和输出放在仓库/便携包外。
+公开输入按 `questions_root/Qxx/inputs.json` 显式列出 TASK 与有序 DXF/PNG/JPEG；旧 `TASK.md + drawing.dxf` 目录继续支持。图片与多附件要求 `execution_backend=unified_gateway`，合同、限额及生成示例见 [输入格式](INPUT_FORMATS.md)。维护端私有 `cases.json` 的 `cases` 数组必须包含 `case`、`gt`、`annotations` 和 `expected_hashes.gt/annotations`；路径必须绝对化，标注的 `gt_sha256` 需匹配对应 GT。[数据仓库](https://github.com/espresso205/fusion-benchmark-dataset)提供 `python scripts/prepare_config.py --output local/private_cases.json`，可用 `--cases Q01 Q02` 选题；把其生成文件路径传给本生成器的 `--private-cases`。私有配置和输出放在仓库/便携包外。
+
+选定图片模型后显式执行 `python -B fusion-benchmark-bootstrap.py visual-check --config <pipeline.json> --output <新目录>`，验证两张图片经正式 Gateway 传输及模型识别。该命令使用真实模型额度，但不调用 Fusion；`doctor`/管理 `preflight` 不会做此验证。保存本次 CLI 版本、请求模型及实际返回证据，不能推广成所有模型均支持图片。
 
 ## 连接管理 MCP
 

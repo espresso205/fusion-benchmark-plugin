@@ -24,8 +24,9 @@ def main(argv=None):
     register = subs.add_parser("register-case", help="snapshot this case's public inputs and bind its contract")
     register.add_argument("run", type=Path)
     register.add_argument("case_id")
-    register.add_argument("--task", type=Path, required=True)
-    register.add_argument("--drawing", type=Path, required=True)
+    register.add_argument("--task", type=Path)
+    register.add_argument("--drawing", type=Path)
+    register.add_argument("--manifest", type=Path, help="versioned public inputs manifest; mutually exclusive with --task/--drawing")
     register.add_argument("--attempt-id", default="attempt-1")
     register.add_argument("--protocol-id", default="fusion-step-adapted-v2.0")
     transition = subs.add_parser("transition", help="record an offline stage; does not execute modeling")
@@ -56,7 +57,8 @@ def main(argv=None):
             # Incomplete work is normal. Detected tampering/missing frozen evidence is an error.
             return 2 if any("verification_error" in c for c in report["cases"].values()) else 0
         if args.cmd == "register-case":
-            scheduler.register_case(args.case_id, args.attempt_id, args.protocol_id, task=args.task, drawing=args.drawing)
+            scheduler.register_case(args.case_id, args.attempt_id, args.protocol_id,
+                                    task=args.task, drawing=args.drawing, manifest=args.manifest)
         elif args.cmd == "transition":
             scheduler.transition(args.case_id, args.stage)
         elif args.cmd == "freeze-candidate":

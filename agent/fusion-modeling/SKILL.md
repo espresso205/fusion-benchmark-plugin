@@ -1,6 +1,6 @@
 ---
 name: fusion-modeling
-description: Build and inspect native Autodesk Fusion models through an existing Fusion MCP bridge, including benchmark worker sessions that receive public TASK/DXF inputs and submit an F3D archive.
+description: Build and inspect native Autodesk Fusion models through an existing Fusion MCP bridge, including benchmark worker sessions with public task, DXF and ordered PNG/JPEG inputs that submit an F3D archive.
 ---
 
 # Native Fusion modeling
@@ -9,7 +9,11 @@ Use the existing Autodesk Fusion desktop and MCP bridge. This skill is guidance,
 
 ## Benchmark worker route
 
-Call `get_contract`, then `read_input` for `TASK.md` and `fusion_skill`; use `parse_dxf` for the public drawing. `fusion_tools` returns the current schemas for the allowed Fusion tools. All Fusion calls go through `fusion_call` with the discovered tool name and argument object. Do not infer schema fields from a previous machine or hardcode an MCP port.
+Call `get_contract` and `list_inputs`, then `read_input` for the task and `fusion_skill`. Read every listed attachment in order: `read_image(id=...)` for PNG/JPG/JPEG and `parse_dxf(id=...)` for DXF. Images arrive as native MCP image content. Record each input ID and hash, and connect dimensions/features to the view that supports them. For legacy TASK/DXF contracts, `read_input(name=TASK.md)` and `parse_dxf()` remain available.
+
+Use annotated engineering dimensions and explicit units. Pixel distances are not millimetres. Combine all views; do not silently skip an image or invent a missing dimension as measured truth. Record uncertain readings, conflicting dimensions and any assumptions or simplifications in the worker report. A required unreadable/unsupported input must be reported as a failure. PDF/WebP model reading is not supported by this input contract.
+
+`fusion_tools` returns the current schemas for the allowed Fusion tools. All Fusion calls go through `fusion_call` with the discovered tool name and argument object. Do not infer schema fields from a previous machine or hardcode an MCP port.
 
 The currently supported bridge tool names are `fusion_mcp_read`, `fusion_mcp_execute`, `fusion_mcp_update`, and `fusion_mcp_electronics_read`; availability still depends on the installed bridge. A mechanical benchmark normally uses the first three. Read their returned schemas and errors before selecting operations.
 

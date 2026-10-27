@@ -9,6 +9,7 @@
 - [v4 评分合同](docs/SCORING_V4.md)；[历史 v3](docs/SCORING_V3.md)
 - [已有结果的指标消融分析](docs/ABLATION.md)
 - [HTML 结果报告与三维对比](docs/HTML_REPORT.md)
+- [PNG/JPEG、多图与混合建模输入](docs/INPUT_FORMATS.md)：显式清单、冻结哈希和原生 MCP 图片；旧 TASK/DXF 目录继续支持。
 - [维护端技能](agent/fusion-benchmark/SKILL.md) · [候选建模技能](agent/fusion-modeling/SKILL.md)
 - [配置示例](examples/fusion_pipeline_config.json) · [依赖与许可](docs/DEPENDENCIES.md)
 - 独立评测器：[espresso205/fusion-step-evaluator](https://github.com/espresso205/fusion-step-evaluator)

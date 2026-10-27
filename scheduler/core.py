@@ -13,11 +13,13 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import stat
 import time
 import uuid
 
 from src.io_utils import strict_json
+from fusion_pipeline.input_assets import load_manifest, validate_manifest, verify_manifest, iter_assets, read_asset
 
 SCHEMA_VERSION = 2
 STATES = ("preflight", "case_queued", "modeling", "artifact_staged", "candidate_frozen")
@@ -215,10 +217,11 @@ class Scheduler:
             if contract["case_id"] != case_id or set(contract) != {"case_id", "attempt_id", "protocol_id", "trusted_step_required", "inputs"}:
                 raise ValueError("invalid registered contract")
             inputs = contract["inputs"]
-            if not isinstance(inputs, dict) or set(inputs) != {"task", "drawing"}:
-                raise ValueError("task/drawing hashes must be bound at registration")
-            for role, filename in (("task", "TASK.md"), ("drawing", "drawing.dxf")):
-                self._validate_descriptor(inputs[role], f"public/{case_id}/{filename}")
+            if isinstance(inputs, dict) and set(inputs) == {"task", "drawing"}:
+                for role, filename in (("task", "TASK.md"), ("drawing", "drawing.dxf")):
+                    self._validate_descriptor(inputs[role], f"public/{case_id}/{filename}")
+            else:
+                validate_manifest(inputs, case_id)
             if record.get("status") not in STATES:
                 raise ValueError("unsupported offline state")
             if type(record.get("retries")) is not int or record["retries"] not in (0, 1):
@@ -265,45 +268,87 @@ class Scheduler:
             raise ValueError(f"file hash mismatch: {expected_path}")
 
     def _check_inputs(self, case_id, record):
+        inputs = record["contract"]["inputs"]
+        if set(inputs) != {"task", "drawing"}:
+            validate_manifest(inputs, case_id)
+            verify_manifest(inputs, self._path(f"public/{case_id}"))
+            return
         for role, filename in (("task", "TASK.md"), ("drawing", "drawing.dxf")):
-            self._check_descriptor(record["contract"]["inputs"][role], f"public/{case_id}/{filename}")
+            self._check_descriptor(inputs[role], f"public/{case_id}/{filename}")
 
     def register_case(self, case_id, attempt_id="attempt-1", protocol_id="fusion-step-adapted-v2.0",
-                      trusted_step_required=True, *, task=None, drawing=None):
+                      trusted_step_required=True, *, task=None, drawing=None, manifest=None):
         contract = dict(case_id=case_id, attempt_id=attempt_id, protocol_id=protocol_id,
                         trusted_step_required=trusted_step_required)
         validate_case_spec(contract)
-        if task is None or drawing is None:
+        if manifest is not None and (task is not None or drawing is not None):
+            raise ValueError("manifest and task/drawing registration are mutually exclusive")
+        if manifest is None and (task is None or drawing is None):
             raise ValueError("registration requires actual public TASK.md and drawing.dxf files")
+        # The old representation remains byte-for-byte compatible. New records
+        # carry the versioned manifest itself; checkpoint.json remains authority.
+        public_manifest = load_manifest(manifest, case_id) if manifest is not None else None
         with self._transaction():
             if any(case_id.casefold() == key.casefold() for key in self._state["cases"]):
                 raise ValueError(f"duplicate case: {case_id}")
-            inputs = {}
-            for role, source, filename in (("task", task, "TASK.md"), ("drawing", drawing, "drawing.dxf")):
-                source = _plain(source)
-                expected = _hash(source)
-                content = source.read_bytes()
-                if hashlib.sha256(content).hexdigest() != expected:
-                    raise ValueError("public input changed during snapshot")
-                relative = f"public/{case_id}/{filename}"
-                self._atomic(relative, content, exclusive=True)
-                inputs[role] = self._descriptor(relative)
-                if inputs[role]["sha256"] != expected:
-                    raise ValueError("snapshot hash mismatch")
-            contract["inputs"] = inputs
-            self._state["cases"][case_id] = {
-                "contract": contract, "status": "preflight", "retries": 0,
-                "manifest_sha256": None, "inputs_verified": True, "submission_verified": False,
-                "artifact_frozen": False, "evaluation_complete": False,
-            }
-            self._event(case_id, "registered")
+            target = self._path(f"public/{case_id}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                raise ValueError("public snapshot target already exists; inspect unregistered evidence")
+            temporary_relative = f"public/.{case_id}.{uuid.uuid4().hex}.partial"
+            temporary = self._path(temporary_relative)
+            temporary.mkdir(exist_ok=False)
+            published = False
+            try:
+                inputs = {} if public_manifest is None else deepcopy(public_manifest)
+                if public_manifest is not None:
+                    source_root = Path(manifest).parent
+                    for descriptor in iter_assets(public_manifest):
+                        _, content = read_asset(public_manifest, source_root, descriptor["id"])
+                        self._atomic(f"{temporary_relative}/{descriptor['path']}", content, exclusive=True)
+                    verify_manifest(public_manifest, source_root)
+                    verify_manifest(public_manifest, temporary)
+                else:
+                    for role, source, filename in (("task", task, "TASK.md"), ("drawing", drawing, "drawing.dxf")):
+                        source = _plain(source)
+                        expected = _hash(source)
+                        content = source.read_bytes()
+                        if hashlib.sha256(content).hexdigest() != expected or _hash(source) != expected:
+                            raise ValueError("public input changed during snapshot")
+                        relative = f"{temporary_relative}/{filename}"
+                        self._atomic(relative, content, exclusive=True)
+                        if _hash(self._path(relative)) != expected:
+                            raise ValueError("snapshot hash mismatch")
+                        inputs[role] = {"path": f"public/{case_id}/{filename}", "sha256": expected}
+                _plain(target)
+                if target.exists():
+                    raise ValueError("public snapshot target already exists")
+                temporary.rename(target)
+                published = True
+                contract["inputs"] = inputs
+                self._state["cases"][case_id] = {
+                    "contract": contract, "status": "preflight", "retries": 0,
+                    "manifest_sha256": None, "inputs_verified": True, "submission_verified": False,
+                    "artifact_frozen": False, "evaluation_complete": False,
+                }
+                self._event(case_id, "registered")
+            except BaseException:
+                # Only this transaction's newly-created snapshot is removable.
+                # Commit/view failures happen outside this block, retaining the
+                # snapshot if the authoritative checkpoint may have committed.
+                if published:
+                    shutil.rmtree(_plain(target))
+                raise
+            finally:
+                if temporary.exists():
+                    shutil.rmtree(_plain(temporary))
 
     def register_case_spec(self, case_id, spec):
         validate_case_spec(spec)
         if spec["case_id"] != case_id:
             raise ValueError("case_id mismatch")
         self.register_case(case_id, spec["attempt_id"], spec["protocol_id"], spec["trusted_step_required"],
-                           task=spec.get("task"), drawing=spec.get("drawing"))
+                           task=spec.get("task"), drawing=spec.get("drawing"), manifest=spec.get("manifest"))
 
     def _event(self, case_id, event, *, request_id=None, responsibility="scheduler", detail=None):
         record = self._state["cases"][case_id]

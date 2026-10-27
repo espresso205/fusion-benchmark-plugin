@@ -2,6 +2,8 @@
 
 源码运行需要 Windows x64、CPython 3.12，以及[锁定依赖](../requirements-portable-plugin.lock.txt)。核心依赖包括 OCP/OCCT、NumPy、SciPy、Trimesh、Open3D、Manifold、NetworkX、build123d 和 DXF 解析用 ezdxf；完整传递闭包以锁文件和实际构建清单为准。
 
+建模图片使用 Pillow 12.2.0 校验 PNG/JPEG、解码和规范化 EXIF 方向；现作为流水线直接依赖声明，沿用已有 portable lock 的版本。便携构建按 RECORD 收集 Pillow 及其许可，不依赖本机额外图像程序；不会自动缩放、裁切或解释工程尺寸。
+
 Autodesk Fusion、有效登录与许可、可交互桌面、已经安装的 Fusion MCP 桥接，以及 OpenCode/Codex/Claude Code CLI 和模型账号由接收方提供。桥接必须支持运行中实际发现的 Fusion 工具 schema，本仓库不安装或替代它。`doctor` 检查本地 CLI 能力，不验证模型授权或 Fusion 连通；`run --preflight-only` 会真实调用模型和只读 Fusion 工具。
 
 `vendor/cadgenbench` 是选取的 [Hugging Face CADGenBench](https://github.com/huggingface/cadgenbench) 源码，保留[原许可证](../vendor/cadgenbench_LICENSE)与[项目元数据](../vendor/cadgenbench_pyproject.toml)。它与 `anniedoris/CADBench` 是不同项目。当前评分路径不调用 DeepCAD、CADBench、JoinABLe 或 MechVQA。

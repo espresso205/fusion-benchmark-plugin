@@ -79,9 +79,12 @@ def trusted_reopen_script(
     paths = [os.fspath(path) for path in (f3d_path, step_path, report_path)]
     if any(not isinstance(path, str) or not path or "\x00" in path for path in paths):
         raise ValueError("All three paths must be nonempty text paths without NUL")
-    config = "SOURCE = {!r}\nDESTINATION = {!r}\nREPORT = {!r}\nEXPECTED = {!r}\n\n".format(
-        *paths, expected_source_sha256.lower()
-    )
+    # Transport only ASCII hex: some bridges misdecode raw Unicode or escape
+    # backslashes again. Reconstruct exact path bytes inside the Fusion runtime.
+    config = "".join(
+        f"{name} = bytes.fromhex('{path.encode('utf-8').hex()}').decode('utf-8')\n"
+        for name, path in zip(("SOURCE", "DESTINATION", "REPORT"), paths)
+    ) + f"EXPECTED = {expected_source_sha256.lower()!r}\n\n"
     return _COMMON + config + _REOPEN
 
 
@@ -116,6 +119,15 @@ _REOPEN = '''def _geometry(design):
 
 def _health(design):
     records = []
+    design_type = design.designType
+    if design_type == adsk.fusion.DesignTypes.DirectDesignType:
+        design_type_name = "direct"
+        timeline_status, timeline_count = "not_applicable", None
+    elif design_type == adsk.fusion.DesignTypes.ParametricDesignType:
+        design_type_name = "parametric"
+        timeline_status, timeline_count = "checked", None
+    else:
+        raise RuntimeError("unsupported_design_type")
     def record(entity, kind, location):
         records.append({"kind": kind, "location": location, "name": entity.name,
                         "health": int(entity.healthState), "message": entity.errorOrWarningMessage})
@@ -129,13 +141,17 @@ def _health(design):
                 timeline_items(group, location + "/")
             else:
                 record(item, "timeline", location)
-    timeline_items(design.timeline, "")
+    if design_type == adsk.fusion.DesignTypes.ParametricDesignType:
+        timeline = design.timeline
+        timeline_items(timeline, "")
+        timeline_count = timeline.count
     for component_index, component in enumerate(_items(design.allComponents)):
         for feature_index, feature in enumerate(_items(component.features)):
             record(feature, "feature", str(component_index) + "/" + str(feature_index))
     healthy = int(adsk.fusion.FeatureHealthStates.HealthyFeatureHealthState)
     warning = int(adsk.fusion.FeatureHealthStates.WarningFeatureHealthState)
-    return {"timeline_count": design.timeline.count, "records": records,
+    return {"design_type": design_type_name, "timeline_status": timeline_status,
+            "timeline_count": timeline_count, "records": records,
             "warnings": [row for row in records if row["health"] == warning],
             "blocking": [row for row in records if row["health"] not in (healthy, warning)]}
 
@@ -260,7 +276,7 @@ def run(_context: str):
         report["ended_at_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         try:
             json.dump(report, report_stream, ensure_ascii=False, allow_nan=False, indent=2)
-            report_stream.write("\\n")
+            report_stream.write(chr(10))
             report_stream.flush()
             os.fsync(report_stream.fileno())
         except Exception as error:
@@ -273,7 +289,7 @@ def run(_context: str):
                 report_stream.seek(0)
                 report_stream.truncate()
                 json.dump(report, report_stream, ensure_ascii=False, allow_nan=False, indent=2)
-                report_stream.write("\\n")
+                report_stream.write(chr(10))
                 report_stream.flush()
                 os.fsync(report_stream.fileno())
             except Exception:

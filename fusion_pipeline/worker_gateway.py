@@ -4,6 +4,7 @@ This is a trusted same-account boundary, not an OS sandbox. The coordinator's
 batch lock owns the single Fusion desktop for the entire attempt and export.
 """
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -24,13 +25,20 @@ class GatewayError(RuntimeError):
 
 class WorkerGateway:
     name = "fusion-benchmark-worker"
-    instructions = ("Only this attempt's public TASK and DXF are available. Call get_contract then read_input/parse_dxf. "
+    instructions = ("Only this attempt's declared public inputs are available. Call get_contract and list_inputs, "
+                    "then read_input for text, read_image for each image ID, and parse_dxf for DXF attachments. "
+                    "Read attachments in their declared order. Engineering annotations determine dimensions; pixels are not millimeters. "
                     "Use fusion_tools to inspect Fusion tool schemas and fusion_call to operate your own documents. "
                     "Export submission.f3d, close your own documents, write_report and submit. No reference or scoring access.")
     tools = [
         tool("get_contract", "Read this attempt's public contract and remaining budget.", readonly=True),
-        tool("read_input", "Read an allowed public input or Fusion skill text.", {"name": {"type": "string"}}, ("name",), True),
-        tool("parse_dxf", "Parse public drawing.dxf with ezdxf; no shell or arbitrary code.", readonly=True),
+        tool("list_inputs", "List the task and public attachments in their declared order.", readonly=True),
+        tool("read_input", "Read public text by input ID or declared relative path, or fusion_skill. Images require read_image.",
+             {"name": {"type": "string"}}, ("name",), True),
+        tool("read_image", "Read a declared image by input ID as native MCP image content.",
+             {"id": {"type": "string"}}, ("id",), True),
+        tool("parse_dxf", "Parse a declared DXF by input ID. ID is optional when there is one DXF. No shell or arbitrary code.",
+             {"id": {"type": "string"}}, readonly=True),
         tool("fusion_tools", "Read the four allowed Fusion tools' argument schemas.", readonly=True),
         tool("fusion_call", "Execute an allowed Fusion MCP tool; uncertain results block further Fusion calls.",
              {"tool": {"type": "string", "enum": sorted(FUSION_TOOLS)}, "arguments": {"type": "object"}}, ("tool", "arguments")),
@@ -43,6 +51,7 @@ class WorkerGateway:
         raw = self.path.read_bytes()
         self.contract = json.loads(raw)
         self.contract_hash = hashlib.sha256(raw).hexdigest()
+        self.input_root = Path(self.contract["workspace"])
         self.workspace = Path(self.contract["workspace"]).resolve()
         self.audit = Path(self.contract["audit_dir"]).resolve()
         self.state_path = self.audit / "gateway-state.json"
@@ -116,6 +125,9 @@ class WorkerGateway:
                                "args_sha256": hashlib.sha256(json.dumps(arguments, sort_keys=True).encode()).hexdigest()})
             if state["calls"] > self.contract["max_tool_calls"]:
                 raise GatewayError("tool_budget_exceeded")
+            if self.contract.get("vision_only") and name not in {
+                    "get_contract", "list_inputs", "read_input", "read_image", "parse_dxf"}:
+                raise GatewayError("vision_check_read_only")
             if name == "fusion_call":
                 if state["pending_fusion"]:
                     raise GatewayError("fusion_task_unknown")
@@ -141,7 +153,12 @@ class WorkerGateway:
                                    "result_sha256": hashlib.sha256(text.encode()).hexdigest()})
                 return RawToolResult(result)
             result = self._local(name, arguments, state)
-            self._save(state, {"type": "completed", "tool": name})
+            event = {"type": "completed", "tool": name}
+            if name == "read_image":
+                metadata = result["structuredContent"]
+                event["image"] = {key: metadata[key] for key in (
+                    "id", "source_sha256", "returned_sha256", "width", "height", "transform", "mime", "source_mime", "index")}
+            self._save(state, event)
             return result
         finally:
             os.close(descriptor)
@@ -157,20 +174,101 @@ class WorkerGateway:
             raise GatewayError("input_denied")
         return path
 
+    def _verify_inputs(self):
+        if "input_manifest" in self.contract:
+            from .input_assets import validate_manifest, verify_manifest
+            try:
+                validate_manifest(self.contract["input_manifest"], case_id=self.contract["case_id"])
+                verify_manifest(self.contract["input_manifest"], self.input_root)
+            except (ValueError, OSError):
+                raise GatewayError("input_integrity_failed") from None
+
+    def _input_descriptor(self, identifier, allow_path=False):
+        from .input_assets import iter_assets
+        for asset in iter_assets(self.contract["input_manifest"]):
+            if asset["id"] == identifier or allow_path and asset["path"] == identifier:
+                return asset
+        raise GatewayError("input_denied")
+
+    def _read_asset(self, identifier):
+        from .input_assets import read_asset
+        try:
+            return read_asset(self.contract["input_manifest"], self.input_root, identifier)
+        except (ValueError, OSError):
+            raise GatewayError("input_integrity_failed") from None
+
     def _local(self, name, arguments, state):
+        if name in {"get_contract", "list_inputs", "read_input", "read_image", "parse_dxf", "submit"}:
+            self._verify_inputs()
         if name == "get_contract":
-            return {key: self.contract[key] for key in ("run_id", "case_id", "attempt_id", "workspace", "model", "deadline", "budget_scope", "max_tool_calls")
+            return {key: self.contract[key] for key in ("run_id", "case_id", "attempt_id", "workspace", "model", "deadline", "budget_scope", "max_tool_calls", "input_manifest")
                     if key in self.contract} | {"remaining_calls": max(0, self.contract["max_tool_calls"] - state["calls"]),
                                                "public_files": self.contract.get("public_files", []), "isolation": "trusted_same_account"}
+        if name == "list_inputs":
+            if "input_manifest" in self.contract:
+                from .input_assets import iter_assets
+                manifest = self.contract["input_manifest"]
+                return {"schema": manifest["schema"], "case_id": manifest["case_id"], "inputs": list(iter_assets(manifest))}
+            inputs = []
+            for filename in self.contract.get("public_files", []):
+                data = self._public(filename).read_bytes()
+                inputs.append({"id": "task" if filename == "TASK.md" else filename, "path": filename,
+                               "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+            return {"case_id": self.contract["case_id"], "inputs": inputs}
         if name == "read_input":
-            path = self._public(arguments["name"])
-            if path.stat().st_size > 8 * 1024 * 1024:
+            if "input_manifest" in self.contract and arguments["name"] != "fusion_skill":
+                asset = self._input_descriptor(arguments["name"], allow_path=True)
+                if asset["mime"].startswith("image/"):
+                    raise GatewayError("image_requires_read_image")
+                _, data = self._read_asset(asset["id"])
+            else:
+                path = self._public(arguments["name"])
+                if path.suffix.lower() in {".png", ".jpg", ".jpeg"}:
+                    raise GatewayError("image_requires_read_image")
+                if path.stat().st_size > 8 * 1024 * 1024:
+                    raise GatewayError("input_too_large_use_parse_dxf")
+                data = path.read_bytes()
+            if len(data) > 8 * 1024 * 1024:
                 raise GatewayError("input_too_large_use_parse_dxf")
-            return {"name": arguments["name"], "text": path.read_text(encoding="utf-8", errors="replace"),
-                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            return {"name": arguments["name"], "text": data.decode("utf-8", errors="replace"),
+                    "sha256": hashlib.sha256(data).hexdigest()}
+        if name == "read_image":
+            if "input_manifest" not in self.contract:
+                raise GatewayError("input_denied")
+            asset = self._input_descriptor(arguments["id"])
+            if not asset["mime"].startswith("image/"):
+                raise GatewayError("input_not_image")
+            from .input_assets import image_result
+            try:
+                return RawToolResult(image_result(self.contract["input_manifest"], self.input_root, asset["id"]))
+            except (ValueError, OSError):
+                raise GatewayError("input_integrity_failed") from None
         if name == "parse_dxf":
             import ezdxf
-            document = ezdxf.readfile(self._public("drawing.dxf"))
+            if "input_manifest" in self.contract:
+                if "id" in arguments:
+                    asset = self._input_descriptor(arguments["id"])
+                else:
+                    from .input_assets import iter_assets
+                    drawings = [asset for asset in iter_assets(self.contract["input_manifest"]) if asset["mime"] == "application/dxf"]
+                    if len(drawings) != 1:
+                        raise GatewayError("dxf_id_required" if drawings else "input_not_dxf")
+                    asset = drawings[0]
+                if asset["mime"] != "application/dxf":
+                    raise GatewayError("input_not_dxf")
+                _, data = self._read_asset(asset["id"])
+                if data.startswith(b"AutoCAD Binary DXF\r\n\x1a\x00"):
+                    from ezdxf.document import Drawing
+                    from ezdxf.lldxf.tagger import binary_tags_loader
+                    document = Drawing.load(binary_tags_loader(data))
+                else:
+                    from ezdxf.filemanagement import dxf_stream_info
+                    info = dxf_stream_info(io.StringIO(data.decode("utf-8", errors="ignore"), newline=None))
+                    document = ezdxf.read(io.StringIO(data.decode(info.encoding, errors="surrogateescape"), newline=None))
+            else:
+                if arguments.get("id") not in (None, "drawing", "drawing.dxf"):
+                    raise GatewayError("input_denied")
+                document = ezdxf.readfile(self._public("drawing.dxf"))
             entities = []
             for entity in document.modelspace():
                 record = {"type": entity.dxftype(), "attributes": entity.dxf.all_existing_dxf_attribs()}

@@ -1,14 +1,62 @@
 """No models or Fusion: exercise the public stdio protocol and registration."""
+import base64
+import hashlib
 import io
 import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
 class UnifiedServiceTests(unittest.TestCase):
+    def test_worker_stdio_returns_decodable_native_image_content(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            workspace, audit = root / "case", root / "audit"
+            workspace.mkdir()
+            audit.mkdir()
+            (workspace / "TASK.md").write_text("Use the annotated drawing.", encoding="utf-8")
+            Image.new("RGB", (13, 9), (11, 22, 33)).save(workspace / "drawing.png")
+
+            def asset(identifier, role, filename, mime):
+                data = (workspace / filename).read_bytes()
+                return {"id": identifier, "role": role, "path": filename, "mime": mime,
+                        "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(), "display_name": filename}
+
+            manifest = {"schema": "fusion-public-inputs/1", "case_id": "Q01",
+                        "task": asset("task", "task", "TASK.md", "text/markdown"),
+                        "attachments": [asset("drawing", "drawing", "drawing.png", "image/png")]}
+            contract = audit / "worker-contract.json"
+            contract.write_text(json.dumps({"schema": "fusion-worker/1", "case_id": "Q01", "workspace": str(workspace),
+                "audit_dir": str(audit), "max_tool_calls": 4, "deadline": time.time() + 60,
+                "model": "synthetic", "budget_scope": "mcp_tools_scope", "input_manifest": manifest}), encoding="utf-8")
+            requests = [
+                {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}},
+                {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "read_image", "arguments": {"id": "drawing"}}},
+                {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "read_input", "arguments": {"name": "drawing.png"}}},
+            ]
+            result = subprocess.run([sys.executable, "-B", "-m", "fusion_pipeline.cli", "worker", "--contract", str(contract)],
+                                    input="\n".join(json.dumps(r) for r in requests).encode(), capture_output=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+            responses = [json.loads(line) for line in result.stdout.splitlines()]
+            self.assertEqual([response["id"] for response in responses], [1, 2, 3, 4])
+            image_result = responses[2]["result"]
+            self.assertFalse(image_result.get("isError"), image_result)
+            content = next(item for item in image_result["content"] if item["type"] == "image")
+            data = base64.b64decode(content["data"], validate=True)
+            with Image.open(io.BytesIO(data)) as decoded:
+                self.assertEqual(decoded.size, (13, 9))
+                self.assertEqual(decoded.getpixel((0, 0)), (11, 22, 33))
+            self.assertEqual(image_result["structuredContent"]["returned_sha256"], hashlib.sha256(data).hexdigest())
+            self.assertTrue(responses[3]["result"]["isError"])
+            self.assertEqual(responses[3]["result"]["content"][0]["text"], "image_requires_read_image")
+
     def test_stdio_handshake_discovery_and_notification_have_only_protocol_output(self):
         requests = [
             {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}}},

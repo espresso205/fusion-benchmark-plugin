@@ -5,3 +5,5 @@ Use `fusion-benchmark.cmd connect --cli codex --target <project>/.codex/config.t
 The local MCP entry uses a command plus an argument array: the extracted `runtime/python/python.exe`, followed by `-B`, the absolute `fusion-benchmark-bootstrap.py` path, `serve`, `--config` and the administrator's configuration. Use the generated configuration to preserve Windows path quoting.
 
 A discovered benchmark MCP server and a working native candidate adapter are separate capabilities. Check `doctor` and advertised adapter support before starting questions. Do not claim unattended Codex candidate execution merely because MCP discovery works.
+
+For PNG/JPEG and ordered multi-attachment inputs, use `execution_backend=unified_gateway` and the versioned `inputs.json` described in `docs/INPUT_FORMATS.md`. Run `visual-check --config <pipeline.json> --output <new-directory>` explicitly to verify the selected CLI/model request through the production image tool. This spends model budget. Codex records requested model identity; it does not attest the backend's actual catalog model. Keep the configured native-tool isolation policy explicit.

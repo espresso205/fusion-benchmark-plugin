@@ -8,6 +8,35 @@ GENERATION_FILE = 'html-report-generation.json'
 SAFE_FAILURE = 'HTML report generation failed; completed scoring results are unchanged.'
 
 
+def frozen_report_inputs(pipeline):
+    """Map the bound public snapshots to the existing display-only contract."""
+    from .input_assets import read_asset, verify_manifest
+    from .runner import atomic
+    entries, ledger = [], None
+    for row in pipeline.get('cases', []):
+        manifest = row.get('input_manifest')
+        if not manifest or not row.get('workspace'):
+            continue
+        workspace = Path(row['workspace']).absolute()
+        current_ledger = workspace.parent.parent
+        if ledger is not None and current_ledger != ledger:
+            raise ValueError('frozen report inputs must belong to one ledger')
+        ledger = current_ledger
+        public = ledger / 'public' / row['case_id']
+        verify_manifest(manifest, public)
+        _, task = read_asset(manifest, public, manifest['task']['id'])
+        entries.append(dict(case=row['case_id'], task_type='generation',
+            prompt=task.decode('utf-8-sig')[:16000],
+            assets=[dict(path=f"public/{row['case_id']}/{asset['path']}",
+                         sha256=asset['sha256'], label=asset['display_name'], purpose='input')
+                    for asset in manifest['attachments']]))
+    if not entries:
+        return None
+    path = ledger / 'report-inputs.json'
+    atomic(path, dict(schema_version='fusion-report-inputs/1', cases=entries))
+    return path
+
+
 def _inside_file(root, relative):
     root = Path(root).resolve()
     path = root / relative
@@ -68,6 +97,8 @@ def build_private_report(private_root, pipeline, *, config=None, timeout=10.0, i
                       coordinate_mode=pipeline.get('coordinate_mode') or config.get('coordinate_mode', 'geometry'))
         source = root / 'evaluation' if (root / 'evaluation/summary.json').is_file() else None
         inputs = inputs if inputs is not None else config.get('report_inputs')
+        if inputs is None:
+            inputs = frozen_report_inputs(pipeline)
         interfaces = interfaces if interfaces is not None else config.get('report_interfaces')
         options = {'inputs': inputs} if inputs is not None else {}
         if interfaces is not None:

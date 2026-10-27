@@ -31,6 +31,9 @@ def main(argv=None):
     run = commands.add_parser("run")
     run.add_argument("--config", type=Path, required=True)
     run.add_argument("--preflight-only", action="store_true")
+    visual = commands.add_parser("visual-check", help="Explicit real model image check; spends model budget, no Fusion calls")
+    visual.add_argument("--config", type=Path, required=True)
+    visual.add_argument("--output", type=Path, required=True)
     job = commands.add_parser("_run-job", help=argparse.SUPPRESS)
     job.add_argument("--job", type=Path, required=True)
     job.add_argument("--preflight-only", action="store_true")
@@ -41,6 +44,11 @@ def main(argv=None):
         item.add_argument("--config", type=Path, required=True)
         item.add_argument("run_id")
     args = parser.parse_args(argv)
+    if args.command == "visual-check":
+        from .visual_check import run_visual_check
+        result = run_visual_check(args.config, args.output)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result['status'] == 'passed' else 2
     from .service import ManagementService, serve, run_job
     if args.command == "serve":
         serve(ManagementService(args.config))

@@ -17,7 +17,9 @@ flowchart LR
 
 `fusion_pipeline/service.py` 提供 stdio MCP 的 `capabilities`、`preflight`、`start_run`、`status`、`cancel`、`results`。连接配置由 `discovery.py` 安全合并，宿主技能由接收方按宿主机制安装。MCP 发现不会自动创建宿主原生子代理；`adapters.py` 负责以已配置模型启动新的 OpenCode、Codex 或 Claude Code CLI 进程。
 
-`runner.py` 创建新 run、记录源码与输入身份、准备逐题工作区，并串行占用 Fusion 桌面。候选只接收本题公开 TASK/DXF、通用建模说明和提交路径。`worker_gateway.py` 公开合同读取、输入读取、DXF 解析、Fusion schema 查询/调用、报告与提交工具；它记录哈希链日志及 `mcp_tools_scope` 调用预算，提交后撤销后续工具调用。
+`runner.py` 创建新 run、记录源码与输入身份、准备逐题工作区，并串行占用 Fusion 桌面。候选只接收本题冻结公开清单中的任务和有序 DXF/PNG/JPEG、通用建模说明和提交路径，旧 TASK/DXF 自动映射。`input_assets.py` 统一校验路径、格式、大小与哈希；`worker_gateway.py` 公开 `list_inputs/read_image` 原生图片读取及原有文本/DXF、Fusion schema 查询/调用、报告与提交工具；它记录哈希链日志及 `mcp_tools_scope` 调用预算，提交后撤销后续工具调用。历史scheduler外层schema 2保持，旧inputs字节不迁移；新inputs使用独立版本化合同。
+
+`visual-check` 是显式调用模型的独立验收，使用正式Gateway读取两张随机图、识别内容并保留输入/返回图哈希和回答。它不调用Fusion；管理 `preflight` 仍只检查本地配置与CLI，不宣称模型视觉支持。`run --preflight-only` 保留原真实模型+Fusion只读连通性检查。
 
 ## 冻结与可信导出
 

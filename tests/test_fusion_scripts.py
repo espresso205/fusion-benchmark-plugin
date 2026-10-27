@@ -48,6 +48,20 @@ class Document:
         return self.close_ok
 
 
+class DesignDouble(NS):
+    @property
+    def designType(self):
+        if self.design_type_error:
+            raise self.design_type_error
+        return self.design_type
+
+    @property
+    def timeline(self):
+        if self.timeline_error:
+            raise self.timeline_error
+        return self.timeline_collection
+
+
 class FusionDouble:
     def __init__(self):
         self.documents = Collection()
@@ -66,8 +80,9 @@ class FusionDouble:
         self.feature = NS(name="synthetic feature", healthState=0, errorOrWarningMessage="", isValid=True)
         self.timeline_item = NS(name="synthetic feature", healthState=0, errorOrWarningMessage="", isGroup=False, isValid=True)
         self.root = NS(name="root", bRepBodies=Collection([body]), allOccurrences=Collection(), features=Collection([self.feature]))
-        self.design = NS(isValid=True, rootComponent=self.root, timeline=Collection([self.timeline_item]),
-                         allComponents=Collection([self.root]), computeAll=lambda: True)
+        self.design = DesignDouble(isValid=True, rootComponent=self.root, timeline_collection=Collection([self.timeline_item]),
+                                   allComponents=Collection([self.root]), computeAll=lambda: True,
+                                   design_type=1, design_type_error=None, timeline_error=None)
         self.design.exportManager = NS(createSTEPExportOptions=lambda path: path, execute=self.export)
         self.importManager = NS(createFusionArchiveImportOptions=lambda path: path, importToNewDocument=self.import_doc)
         self.core = ModuleType("adsk.core")
@@ -76,6 +91,7 @@ class FusionDouble:
         self.fusion.Design = NS(cast=lambda value: value)
         self.fusion.TimelineGroup = NS(cast=lambda value: value)
         self.fusion.FeatureHealthStates = NS(HealthyFeatureHealthState=0, WarningFeatureHealthState=1)
+        self.fusion.DesignTypes = NS(DirectDesignType=0, ParametricDesignType=1)
         self.adsk = ModuleType("adsk")
         self.adsk.core, self.adsk.fusion = self.core, self.fusion
 
@@ -212,6 +228,74 @@ class FusionScriptTests(unittest.TestCase):
         self.assertTrue(report["own_document_closed"])
         self.assertFalse(self.step.exists())
 
+    def test_direct_design_exports_without_reading_unsupported_timeline(self):
+        self.app.design.design_type = self.app.fusion.DesignTypes.DirectDesignType
+        self.app.design.timeline_error = RuntimeError("3 : this is not a parametric design")
+        report = self.run_reopen()
+        self.assertEqual(report["status"], "passed")
+        self.assertEqual(report["health"]["design_type"], "direct")
+        self.assertEqual(report["health"]["timeline_status"], "not_applicable")
+        self.assertIsNone(report["health"]["timeline_count"])
+        self.assertEqual([row["kind"] for row in report["health"]["records"]], ["feature"])
+        self.assertEqual(report["geometry"]["solid_body_count"], 1)
+        self.assertTrue(report["dependencies"]["closed"])
+        self.assertTrue(report["own_document_closed"])
+        self.assertTrue(self.step.exists())
+
+    def test_direct_design_feature_error_still_blocks_publication(self):
+        self.app.design.design_type = self.app.fusion.DesignTypes.DirectDesignType
+        self.app.design.timeline_error = RuntimeError("timeline unavailable")
+        self.app.feature.healthState = 2
+        report = self.run_reopen()
+        self.assertEqual(report["status"], "failed")
+        self.assertEqual(report["health"]["blocking"][0]["kind"], "feature")
+        self.assertTrue(report["own_document_closed"])
+        self.assertFalse(self.step.exists())
+
+    def test_direct_design_invalid_body_still_blocks_publication(self):
+        self.app.design.design_type = self.app.fusion.DesignTypes.DirectDesignType
+        self.app.design.timeline_error = RuntimeError("timeline unavailable")
+        self.app.root.bRepBodies.item(0).isValid = False
+        report = self.run_reopen()
+        self.assertEqual(report["status"], "failed")
+        self.assertTrue(any(error["message"] == "invalid_brep_body" for error in report["errors"]))
+        self.assertTrue(report["own_document_closed"])
+        self.assertFalse(self.step.exists())
+
+    def test_direct_design_external_dependency_still_blocks_publication(self):
+        self.app.design.design_type = self.app.fusion.DesignTypes.DirectDesignType
+        self.app.design.timeline_error = RuntimeError("timeline unavailable")
+        self.app.after_import = lambda: self.app.imported.allDocumentReferences.items.append(NS())
+        report = self.run_reopen()
+        self.assertEqual(report["status"], "failed")
+        self.assertFalse(report["dependencies"]["closed"])
+        self.assertTrue(report["own_document_closed"])
+        self.assertFalse(self.step.exists())
+
+    def test_parametric_design_timeline_error_is_not_downgraded(self):
+        self.app.design.timeline_error = RuntimeError("synthetic parametric timeline failure")
+        report = self.run_reopen()
+        self.assertEqual(report["status"], "failed")
+        self.assertTrue(any(error["message"] == "synthetic parametric timeline failure" for error in report["errors"]))
+        self.assertTrue(report["own_document_closed"])
+        self.assertFalse(self.step.exists())
+
+    def test_unknown_design_type_blocks_export_even_with_healthy_timeline(self):
+        self.app.design.design_type = 99
+        report = self.run_reopen()
+        self.assertEqual(report["status"], "failed")
+        self.assertTrue(any(error["message"] == "unsupported_design_type" for error in report["errors"]))
+        self.assertTrue(report["own_document_closed"])
+        self.assertFalse(self.step.exists())
+
+    def test_unreadable_design_type_blocks_export(self):
+        self.app.design.design_type_error = RuntimeError("synthetic unreadable design type")
+        report = self.run_reopen()
+        self.assertEqual(report["status"], "failed")
+        self.assertTrue(any(error["message"] == "synthetic unreadable design type" for error in report["errors"]))
+        self.assertTrue(report["own_document_closed"])
+        self.assertFalse(self.step.exists())
+
     def test_non_solid_body_blocks_export(self):
         self.app.root.bRepBodies.item(0).isSolid = False
         self.assertEqual(self.run_reopen()["status"], "failed")
@@ -287,6 +371,39 @@ class FusionScriptTests(unittest.TestCase):
         self.source.rename(unusual_source)
         self.source = unusual_source
         self.assertEqual(self.run_reopen()["status"], "passed")
+
+    def test_path_values_survive_bridge_unicode_misdecode_and_backslash_doubling(self):
+        paths = (r"E:\评测\冻结🧩\candidate's 模型.f3d",
+                 r"E:\评测\导出\new\trusted.step", r"E:\评测\报告\new\report.json")
+        script = self.api.trusted_reopen_script(*paths, self.digest)
+        # Reproduce both observed transport faults without contacting the bridge:
+        # raw UTF-8 is decoded as Latin-1 and backslashes are escaped a second time.
+        transported = script.encode("utf-8").decode("latin-1").replace("\\", "\\\\")
+        namespace = {}
+        with patch.dict(sys.modules, {"adsk": self.app.adsk, "adsk.core": self.app.core, "adsk.fusion": self.app.fusion}):
+            exec(compile(transported, "<bridge-path-test>", "exec"), namespace)
+        self.assertEqual(tuple(namespace[name] for name in ("SOURCE", "DESTINATION", "REPORT")), paths)
+        self.assertTrue(script.isascii())
+
+    def test_unicode_directory_reopen_and_report_survive_bridge_transport(self):
+        directory = self.folder / "评测 验收🧩" / "可信导出"
+        directory.mkdir(parents=True)
+        self.source = self.source.rename(directory / "冻结'模型.f3d")
+        self.step = directory / "可信模型.step"
+        self.report = directory / "导出报告.json"
+        script = self.api.trusted_reopen_script(self.source, self.step, self.report, self.digest)
+        transported = script.encode("utf-8").decode("latin-1").replace("\\", "\\\\")
+        try:
+            self.app.execute(transported)
+        except FileNotFoundError as error:
+            self.fail(f"bridge transport changed an existing Unicode directory: {error}")
+        report = json.loads(self.report.read_text(encoding="utf-8"))
+        self.assertEqual(report["status"], "passed")
+        self.assertEqual(report["source_path"], str(self.source.resolve()))
+        self.assertEqual(report["step_path"], str(self.step.absolute()))
+        self.assertEqual(self.app.imported_bytes, self.source.read_bytes())
+        self.assertTrue(report["own_document_closed"])
+        self.assertTrue(self.step.is_file())
 
     def test_bad_expected_hash_is_rejected_before_generating_script(self):
         with self.assertRaises(ValueError):

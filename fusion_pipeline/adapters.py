@@ -83,6 +83,7 @@ def capabilities():
     return {name: {"fresh_process": True, "fresh_session": True, "utf8_stdin": True,
                    "budget_scope": "mcp_tools_scope", "native_tools_disabled": name != "codex",
                    "native_read_tools_possible": name == "codex", "os_sandbox": False,
+                   "visual_input_verification": "requires_explicit_visual_check",
                    "model_identity_evidence": "CLI event metadata" if name != "codex" else "requested model; actual catalog identity not attested by exec JSON"}
             for name in PROVIDERS}
 

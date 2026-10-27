@@ -63,6 +63,123 @@ class SchedulerTests(unittest.TestCase):
     def reload(self):
         return Scheduler.load(self.root / "runs", "run-1")
 
+    def image_manifest(self):
+        from tests.test_input_assets import manifest_fixture
+        value = manifest_fixture(self.root)
+        path = self.root / "inputs.json"
+        write_json(path, value)
+        return path, value
+
+    def test_manifest_registration_reloads_and_freezes_exact_input_contract(self):
+        path, value = self.image_manifest()
+        self.scheduler.register_case("Q01", manifest=path)
+        registered = self.reload().status()["cases"]["Q01"]
+        self.assertEqual(registered["contract"]["inputs"], value)
+        candidate = self.scheduler.run_dir / "candidate/Q01"
+        candidate.mkdir(parents=True)
+        (candidate / "submission.f3d").write_bytes(b"synthetic f3d")
+        write_json(candidate / "dependency_manifest.json", {
+            "schema_version": 1, "case_id": "Q01", "attempt_id": "attempt-1",
+            "inspection_method": "synthetic fixture", "reviewer": "unittest", "dependencies": []})
+        for stage in ("case_queued", "modeling", "artifact_staged"):
+            self.scheduler.transition("Q01", stage)
+        frozen = self.scheduler.freeze_candidate("Q01")
+        self.assertEqual(json.loads(frozen.read_text())["inputs"], value)
+        self.assertTrue(self.reload().verify_artifact_manifest(frozen))
+        (self.scheduler.run_dir / "public/Q01/views/front.png").write_bytes(b"tampered")
+        status = self.reload().status()["cases"]["Q01"]
+        self.assertFalse(status["inputs_verified"])
+        self.assertFalse(status["submission_verified"])
+
+    def test_manifest_case_mismatch_and_ambiguous_registration_leave_no_case(self):
+        path, _ = self.image_manifest()
+        for options in ({"manifest": path, "task": self.task}, {"manifest": path, "drawing": self.drawing}):
+            with self.assertRaises(ValueError):
+                self.scheduler.register_case("Q01", **options)
+        with self.assertRaises(ValueError):
+            self.scheduler.register_case("Q02", manifest=path)
+        self.assertEqual(self.reload().status()["cases"], {})
+
+    def test_failed_legacy_registration_can_retry_without_partial_snapshot(self):
+        missing = self.root / "missing.dxf"
+        with self.assertRaises(OSError):
+            self.scheduler.register_case("Q01", task=self.task, drawing=missing)
+        self.assertFalse((self.scheduler.run_dir / "public/Q01").exists())
+        self.register()
+        self.assertTrue(self.reload().status()["cases"]["Q01"]["inputs_verified"])
+
+    def test_failed_manifest_registration_preserves_retry_and_existing_cases(self):
+        path, value = self.image_manifest()
+        picture = self.root / value["attachments"][0]["path"]
+        original = picture.read_bytes()
+        picture.write_bytes(b"corrupted")
+        with self.assertRaises(ValueError):
+            self.scheduler.register_case("Q01", manifest=path)
+        self.assertFalse((self.scheduler.run_dir / "public/Q01").exists())
+        picture.write_bytes(original)
+        self.scheduler.register_case("Q01", manifest=path)
+        self.assertTrue(self.reload().status()["cases"]["Q01"]["inputs_verified"])
+
+    def test_failed_registration_event_removes_only_its_uncommitted_snapshot(self):
+        path, _ = self.image_manifest()
+        with patch.object(Scheduler, "_event", side_effect=ValueError("injected event failure")):
+            with self.assertRaises(ValueError):
+                self.scheduler.register_case("Q01", manifest=path)
+        self.assertFalse((self.scheduler.run_dir / "public/Q01").exists())
+        self.scheduler.register_case("Q01", manifest=path)
+        self.assertTrue(self.reload().status()["cases"]["Q01"]["inputs_verified"])
+
+    def test_changed_source_during_snapshot_cleans_staging_and_allows_retry(self):
+        path, value = self.image_manifest()
+        picture = self.root / value["attachments"][0]["path"]
+        original = picture.read_bytes()
+        real_atomic = Scheduler._atomic
+        def change_after_copy(scheduler, relative, content, **kwargs):
+            result = real_atomic(scheduler, relative, content, **kwargs)
+            if relative.endswith("/views/front.png"):
+                picture.write_bytes(b"changed after copy")
+            return result
+        with patch.object(Scheduler, "_atomic", change_after_copy):
+            with self.assertRaises(ValueError):
+                self.scheduler.register_case("Q01", manifest=path)
+        self.assertEqual(list((self.scheduler.run_dir / "public").iterdir()), [])
+        self.assertEqual(self.reload().status()["cases"], {})
+        picture.write_bytes(original)
+        self.scheduler.register_case("Q01", manifest=path)
+        self.assertTrue(self.reload().status()["cases"]["Q01"]["inputs_verified"])
+
+    def test_manifest_checkpoint_identity_cannot_switch_case_or_require_redundant_file(self):
+        path, _ = self.image_manifest()
+        self.scheduler.register_case("Q01", manifest=path)
+        checkpoint = self.scheduler.run_dir / "checkpoint.json"
+        original = checkpoint.read_bytes()
+        data = json.loads(original)
+        data["cases"]["Q01"]["contract"]["inputs"]["case_id"] = "Q02"
+        write_json(checkpoint, data)
+        with self.assertRaises(ValueError):
+            self.reload()
+        checkpoint.write_bytes(original)
+        public = self.scheduler.run_dir / "public/Q01"
+        self.assertFalse((public / "inputs.json").exists())
+        self.assertTrue(self.reload().status()["cases"]["Q01"]["inputs_verified"])
+
+    def test_legacy_checkpoint_and_frozen_manifest_are_not_rewritten_on_load(self):
+        frozen = self.freeze()
+        checkpoint = self.scheduler.run_dir / "checkpoint.json"
+        before = (checkpoint.read_bytes(), frozen.read_bytes())
+        loaded = self.reload()
+        self.assertTrue(loaded.verify_artifact_manifest(frozen))
+        self.assertEqual((checkpoint.read_bytes(), frozen.read_bytes()), before)
+        self.assertEqual(set(loaded.status()["cases"]["Q01"]["contract"]["inputs"]), {"task", "drawing"})
+
+    def test_cli_manifest_register_and_mutual_exclusion(self):
+        path, value = self.image_manifest()
+        result = self.cli("register-case", self.scheduler.run_dir, "Q01", "--manifest", path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.reload().status()["cases"]["Q01"]["contract"]["inputs"], value)
+        result = self.cli("register-case", self.scheduler.run_dir, "Q02", "--manifest", path, "--task", self.task)
+        self.assertEqual(result.returncode, 2)
+
     def test_unique_run_and_path_validation(self):
         self.assertRaises(FileExistsError, self.scheduler.create_run, "run-1")
         for name in ("../other", "CON", "q:stream", "", "Q.1"):

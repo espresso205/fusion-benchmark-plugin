@@ -17,12 +17,16 @@
       "sha256": "d7ce22b5fb7b94e70d7495bd8db2860ef05e7d17076af8179a4f49b79b6029b5"
     },
     "scheduler/__main__.py": {
-      "bytes": 3672,
-      "sha256": "5dec6311b6b70f13cae46f14f836b36d5f86bda6c9cc62cb376e9ae72f37984c"
+      "bytes": 3837,
+      "sha256": "68d7307df2153e2d92a8fa2b9f7b78382bf630d91963fee84863e0aac96e6128",
+      "previous_sha256": "5dec6311b6b70f13cae46f14f836b36d5f86bda6c9cc62cb376e9ae72f37984c",
+      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged"
     },
     "scheduler/core.py": {
-      "bytes": 25966,
-      "sha256": "bbe5366a648c0dd356e3dd43579bc2b9f6a933f72aa6560322a366d84991174c"
+      "bytes": 28748,
+      "sha256": "0cf164f5156c647bb06ceacaadeaea5bf4078cf30c6bb5f8a3dc2ab1f8d14561",
+      "previous_sha256": "bbe5366a648c0dd356e3dd43579bc2b9f6a933f72aa6560322a366d84991174c",
+      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged"
     },
     "src/__init__.py": {
       "bytes": 80,
@@ -168,19 +172,22 @@
       "source": "local v4 adaptation"
     },
     "fusion_pipeline/cli.py": {
-      "bytes": 4179,
-      "sha256": "ce427d0e8d3212bc880122bad48cca5dde8b52119b7b015121927a72ac1efffe",
-      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+      "bytes": 4700,
+      "sha256": "3105d8334c0d7ab1386bc32828d77043427d7603e857dc4148d746a974e155e5",
+      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged",
+      "previous_sha256": "ce427d0e8d3212bc880122bad48cca5dde8b52119b7b015121927a72ac1efffe"
     },
     "fusion_pipeline/reporting.py": {
-      "bytes": 4382,
-      "sha256": "56c6432860833b1516bd833b4821c28f812b004135b6f1c78ebca3c7092941aa",
-      "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
+      "bytes": 5830,
+      "sha256": "026db803cddd645f5905510fc500127f5c1211c1f3fc05e99067c2e63b60357e",
+      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged",
+      "previous_sha256": "56c6432860833b1516bd833b4821c28f812b004135b6f1c78ebca3c7092941aa"
     },
     "fusion_pipeline/runner.py": {
-      "bytes": 65642,
-      "sha256": "4f0b9a9f62d718321712bcfe61945f89fde14ffb26a23eafbb10243af01a4077",
-      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+      "bytes": 68127,
+      "sha256": "a332ab640ab74fcff8bb675d2c5bb1b7b64cbd8f82c06c945793f7cefad503cc",
+      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged",
+      "previous_sha256": "4f0b9a9f62d718321712bcfe61945f89fde14ffb26a23eafbb10243af01a4077"
     },
     "fusion_pipeline/service.py": {
       "bytes": 15456,
@@ -286,7 +293,24 @@
       "bytes": 4440,
       "sha256": "50effaeb94acd06607df1054590d3758dfe437eb31a9d00cc7ef02297ae33f07",
       "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
+    },
+    "fusion_pipeline/input_assets.py": {
+      "bytes": 15506,
+      "sha256": "912b5dbd3ea29971f09b6263a416bc58ae342f8dfcad2934518519e150efee48",
+      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged"
+    },
+    "fusion_pipeline/visual_check.py": {
+      "bytes": 7212,
+      "sha256": "0ba7e3a79784e0ed6a934e55de7cc46b498f5d119d6a54a3ee4ca79167b13f21",
+      "source": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged"
+    },
+    "fusion_pipeline/fusion_scripts.py": {
+      "bytes": 17077,
+      "sha256": "0ea368c0b3e282fe802c7ef7271d12fb5f8d24b35189009042ec3d43fd28debf",
+      "previous_sha256": "2034f70d7f3de2cc426b219293f36030b0df37edab48a0d9cf4202640f88d2f7",
+      "source": "2026-10-27: explicit direct/parametric Fusion design health checks and ASCII UTF-8 hex path transport; scoring algorithms and weights unchanged"
     }
   },
-  "html_report_revision": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
+  "html_report_revision": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged",
+  "public_input_revision": "2026-10-27: versioned PNG/JPEG/multi-attachment input freezing, Gateway and visual acceptance; scoring algorithms and weights unchanged"
 }

@@ -2,3 +2,5 @@
 # OpenCode and Autodesk Fusion are installed/configured separately.
 -r requirements-evaluator.txt
 ezdxf==1.4.4
+# Public PNG/JPEG decoding and EXIF orientation; already pinned in portable lock.
+pillow==12.2.0

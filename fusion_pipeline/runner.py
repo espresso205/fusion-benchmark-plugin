@@ -149,6 +149,7 @@ def snapshot_evaluator(source, destination):
     names = {name for name in ("evaluate.py", "evaluate_v4.py", "worker.py", "worker_v4.py", "bootstrap.py", "scheduler.py", "weights.json", "weights_v3.json", "weights_v4.json", "render_report.py", "serve_report.py")
              if (source / name).is_file()}
     for name in ("report_assets/report.css", "report_assets/report.js", "report_assets/VIEWER_SOURCES.json",
+                 "fusion_pipeline/__init__.py", "fusion_pipeline/input_assets.py",
                  "report_assets/viewer/comparison-view.js", "report_assets/viewer/mesh-validation.js",
                  "report_assets/viewer/preview-geometry-worker.js", "report_assets/vendor/three.module.js",
                  "report_assets/licenses/CADViewer-MIT.txt", "report_assets/licenses/Three-MIT.txt"):
@@ -408,12 +409,44 @@ class Trial:
         verify_package(self.evaluator, self.state["evaluator_manifest_sha256"])
 
     def verify_public_inputs(self, row):
+        if row.get("input_manifest"):
+            from .input_assets import verify_manifest
+            manifest = row["input_manifest"]
+            verify_manifest(manifest, self.ledger / "public" / row["case_id"])
+            verify_manifest(manifest, Path(row["workspace"]))
+            return
         workspace = Path(row["workspace"])
         for name in ("TASK.md", "drawing.dxf"):
             public = self.ledger / "public" / row["case_id"] / name
             candidate_copy = workspace / name
             if not candidate_copy.is_file() or sha(candidate_copy) != sha(public):
                 raise ValueError(f"working public input changed: {row['case_id']}/{name}")
+
+    def prepare_case_inputs(self, row):
+        """Freeze one explicit list, then copy only its bound files to the worker."""
+        from .input_assets import iter_assets, legacy_manifest, verify_manifest
+        case = row["case_id"]
+        source = Path(self.config["questions_root"]) / case
+        manifest_path = source / "inputs.json"
+        if manifest_path.exists():
+            if not getattr(self, "unified_gateway", False):
+                raise ValueError("manifest inputs require execution_backend=unified_gateway")
+            self.scheduler("register-case", self.ledger, case, "--manifest", manifest_path)
+            checkpoint = strict_json(self.ledger / "checkpoint.json")
+            manifest = checkpoint["cases"][case]["contract"]["inputs"]
+        else:
+            self.scheduler("register-case", self.ledger, case, "--task", source / "TASK.md", "--drawing", source / "drawing.dxf")
+            manifest = legacy_manifest(case, self.ledger / "public" / case)
+        frozen = self.ledger / "public" / case
+        verify_manifest(manifest, frozen)
+        workspace = self.ledger / "candidate" / case
+        workspace.mkdir(parents=True, exist_ok=False)
+        for asset in iter_assets(manifest):
+            target = workspace / asset["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(frozen / asset["path"], target)
+        row.update(workspace=str(workspace), input_manifest=manifest, state="queued")
+        self.verify_public_inputs(row)
 
     def cleanup_processes(self):
         """Try every owned process tree, including when one cleanup fails."""
@@ -496,15 +529,7 @@ class Trial:
             self.state['reference_plans_sha256'] = sha(self.private / "reference_plans.json")
         self.ledger = Path(self.scheduler("create-run", self.run / "ledger", self.run.name))
         for row in self.state["cases"]:
-            case = row["case_id"]
-            source = Path(self.config["questions_root"]) / case
-            self.scheduler("register-case", self.ledger, case, "--task", source / "TASK.md", "--drawing", source / "drawing.dxf")
-            workspace = self.ledger / "candidate" / case
-            workspace.mkdir(parents=True, exist_ok=False)
-            for filename in ("TASK.md", "drawing.dxf"):
-                shutil.copyfile(self.ledger / "public" / case / filename, workspace / filename)
-            row["workspace"] = str(workspace)
-            row["state"] = "queued"
+            self.prepare_case_inputs(row)
         self.mcp = FusionMCP(self.cli_config, self.event, timeout=180)
         self.probe("initial")
         self.state["state"] = "ready"
@@ -563,6 +588,12 @@ class Trial:
                     "budget_scope": "mcp_tools_scope", "public_files": ["TASK.md"] if smoke else ["TASK.md", "drawing.dxf"],
                     "fusion_skill": self.config["fusion_skill"], "connection_file": str(connection_file),
                     "cancel_file": self.config.get("cancel_file"), "smoke": smoke}
+        if not smoke:
+            from .input_assets import iter_assets
+            row = next(row for row in self.state["cases"] if row["case_id"] == workspace.name)
+            self.verify_public_inputs(row)
+            contract["input_manifest"] = row["input_manifest"]
+            contract["public_files"] = [asset["path"] for asset in iter_assets(row["input_manifest"])]
         atomic(audit_dir / "worker-contract.json", contract)
         bootstrap = BASE / "fusion-benchmark-bootstrap.py"
         if bootstrap.exists():
@@ -766,8 +797,19 @@ class Trial:
 开始时Fusion应无打开文档。仅创建并操作自己的新设计。保存非空、自包含的 {workspace / 'submission.f3d'}；可选导出 submission.step。真实截图/读取实体、尺寸与特征健康后在 worker_report.json 记录模型、输入SHA256、单位、实体/草图/特征数量、错误与简化、文件路径和导出结果。不能编造成功。
 完成后仅关闭本题自己创建的文档（原生F3D已导出后close(False)，不需要云保存），保持Fusion无文档供下一题使用。不要关闭/修改非本题文档。超时或后台状态不明不要重发操作，报告并停止。独立重开和可信STEP导出由流水线完成，不需要你接触评分器。现在开始。"""
         if getattr(self, "unified_gateway", False):
+            from .input_assets import iter_assets
+            reading = []
+            for asset in iter_assets(row["input_manifest"]):
+                if asset["mime"].startswith("image/"):
+                    reading.append(f"read_image(id={asset['id']})")
+                elif asset["mime"] == "application/dxf":
+                    reading.append(f"parse_dxf(id={asset['id']})")
+                else:
+                    reading.append(f"read_input(name={asset['id']})")
+            input_steps = "；".join(reading)
             prompt = f"""你是本题独立Fusion建模Agent，仅处理{case}。用户已授权完整自动运行，不要提问或委派。
-只使用benchmark MCP工具，先get_contract确认单题合同，再read_input读取TASK.md、fusion_skill，parse_dxf解析drawing.dxf。fusion_tools提供实际Fusion工具schema，所有建模通过fusion_call执行Fusion原生API，不使用其他工具、外部几何库或现成答案。
+只使用benchmark MCP工具，先get_contract确认单题合同、list_inputs发现有序输入，再read_input(name=fusion_skill)。按清单顺序逐项读取：{input_steps}。必须读取所有图片，结合视角和标注理解零件；工程尺寸以标注为依据，不能把像素直接当毫米，缺失尺寸或冲突须在报告注明实际假设。
+fusion_tools提供实际Fusion工具schema，所有建模通过fusion_call执行Fusion原生API，不使用其他工具、外部几何库或现成答案。
 当前工作区：{workspace}。禁止读取历史答案、其他题、GT、评分程序、父目录及其他会话。遵守图纸世界坐标和单位。200次受控MCP工具请求、1800秒、一次attempt；同attempt内可修正明确完成的API错误，结果未知立即停止不要重发。
 Fusion开始时无文档，只操作自己新建的设计。完成后导出非空自包含{workspace / 'submission.f3d'}，检查实体/特征健康并关闭本题自己创建的文档(close(False))。不要关闭其他文档。用write_report记录实际模型、尺寸/单位、实体/草图/特征数量、简化与错误、导出路径和结果，不要编造成功。
 最后调用submit冻结F3D和报告。提交成功后不要再调用任何工具，回复完成。维护端负责独立重开、STEP导出和评分。现在开始。"""

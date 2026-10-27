@@ -36,6 +36,8 @@ REQUIRED_SOURCE_FILES = (
     "report_assets/viewer/preview-geometry-worker.js", "report_assets/vendor/three.module.js",
     "report_assets/licenses/CADViewer-MIT.txt", "report_assets/licenses/Three-MIT.txt",
     "fusion_pipeline/reporting.py",
+    "fusion_pipeline/input_assets.py", "fusion_pipeline/visual_check.py", "docs/INPUT_FORMATS.md",
+    "examples/create_public_input_example.py",
     "evaluate.py", "worker.py", "weights.json", "weights_v3.json",
     "evaluate_v4.py", "worker_v4.py", "weights_v4.json", "docs/SCORING_V4.md",
     "src/contract_v4.py", "src/geometry_v4.py", "src/reporting_v4.py",
