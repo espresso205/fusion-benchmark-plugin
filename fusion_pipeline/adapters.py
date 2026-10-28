@@ -1,6 +1,7 @@
 """Provider-specific fresh CLI launches; no model is contacted by probe()."""
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -10,6 +11,155 @@ import urllib.parse
 import uuid
 
 PROVIDERS = ("opencode", "codex", "claude")
+
+
+def _opencode_connection_settings(environment, source, model):
+    """Project selected connection data; keep credentials only in child memory.
+
+    The controlled config replaces global config discovery, so custom provider
+    transports/model IDs must be imported explicitly. No global generation or
+    executable capability configuration crosses this projection.
+    """
+    env = dict(environment)
+    metadata = {'credential_source': 'existing_process_environment', 'credential_values_logged': False}
+    if '/' not in model:
+        return env, {}, metadata
+    provider_id, model_id = model.split('/', 1)
+    if not provider_id or not model_id:
+        return env, {}, metadata
+    settings = {}
+    config_paths = []
+    if source:
+        config_paths = [Path(source)]
+    else:
+        config_dirs = [Path(env.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'opencode']
+        if env.get('OPENCODE_CONFIG_DIR'):
+            config_dirs.append(Path(env['OPENCODE_CONFIG_DIR']))
+        config_paths = [folder / name for folder in config_dirs for name in ('opencode.json', 'opencode.jsonc')
+                        if (folder / name).is_file()]
+        if env.get('OPENCODE_CONFIG') and Path(env['OPENCODE_CONFIG']).is_file():
+            config_paths.append(Path(env['OPENCODE_CONFIG']))
+
+    def merge_connection(base, patch):
+        for key, value in patch.items():
+            if isinstance(value, dict) and isinstance(base.get(key), dict):
+                merge_connection(base[key], value)
+            else:
+                base[key] = value
+
+    def add_layer(layer):
+        if not isinstance(layer, dict) or not isinstance(layer.get('provider', {}), dict):
+            raise ValueError('opencode_connection_settings_invalid')
+        selected_layer = layer.get('provider', {}).get(provider_id)
+        if selected_layer is not None:
+            if not isinstance(selected_layer, dict):
+                raise ValueError('opencode_connection_settings_invalid')
+            # Merge only the selected provider. Global hooks/tools/rules never
+            # participate in connection layering, even temporarily.
+            selected_base = settings.setdefault('provider', {}).setdefault(provider_id, {})
+            merge_connection(selected_base, selected_layer)
+
+    references = []
+    for config_path in config_paths:
+        if not config_path.is_file():
+            continue
+        text = config_path.read_text(encoding='utf-8-sig')
+        # JSONC comments/trailing commas are accepted by OpenCode. Match quoted
+        # strings first so URLs and escaped quotes remain untouched.
+        token = r'"(?:\\.|[^"\\])*"|//[^\n\r]*|/\*[\s\S]*?\*/'
+        text = re.sub(token, lambda match: match[0] if match[0].startswith('"') else ' ', text)
+        text = re.sub(r'("(?:\\.|[^"\\])*")|,(\s*[}\]])',
+                      lambda match: match[1] if match[1] is not None else match[2], text)
+        add_layer(json.loads(text))
+        references.append(str(config_path))
+        metadata['credential_source'] = 'allowlisted_opencode_connection_file'
+        metadata['credential_reference'] = str(config_path)
+    if not source and env.get('OPENCODE_CONFIG_CONTENT'):
+        try:
+            inline = json.loads(env['OPENCODE_CONFIG_CONTENT'])
+        except ValueError:
+            # An invalid inherited overlay is pollution, not an auth source.
+            inline = {}
+        add_layer(inline)
+        references.append('inherited_inline_environment')
+        metadata['credential_source'] = 'allowlisted_opencode_connection_environment'
+    if len(references) > 1:
+        metadata.update(credential_source='allowlisted_opencode_connection_layers', credential_references=references)
+    if not isinstance(settings, dict) or not isinstance(settings.get('provider', {}), dict):
+        raise ValueError('opencode_connection_settings_invalid')
+    connection = settings.get('provider', {}).get(provider_id)
+    if connection is None:
+        return env, {}, metadata
+    if not isinstance(connection, dict):
+        raise ValueError('opencode_connection_settings_invalid')
+
+    def strings(mapping, keys):
+        result = {}
+        if not isinstance(mapping, dict):
+            raise ValueError('opencode_connection_settings_invalid')
+        for key in keys:
+            if key in mapping:
+                if not isinstance(mapping[key], str) or not mapping[key]:
+                    raise ValueError('opencode_connection_settings_invalid')
+                result[key] = mapping[key]
+        return result
+
+    def secret_reference(value):
+        if not isinstance(value, str):
+            raise ValueError('opencode_connection_settings_invalid')
+        if re.fullmatch(r'\{env:[A-Za-z_][A-Za-z0-9_]*\}', value):
+            return value
+        name = 'BENCHMARK_OPENCODE_AUTH_' + str(len(secret_names))
+        while name in env:
+            name += '_'
+        secret_names.append(name)
+        env[name] = value
+        return '{env:' + name + '}'
+
+    secret_names = []
+    selected = strings(connection, ('npm', 'name'))
+    options = connection.get('options', {})
+    if not isinstance(options, dict):
+        raise ValueError('opencode_connection_settings_invalid')
+    discarded_generation = {'reasoningEffort', 'reasoningSummary', 'thinking', 'reasoningBudget',
+        'temperature', 'topP', 'topK', 'maxOutputTokens', 'maxTokens', 'textVerbosity', 'verbosity',
+        'include', 'store', 'parallelToolCalls'}
+    if set(options) - {'baseURL', 'apiKey', 'headers', 'timeout'} - discarded_generation:
+        raise ValueError('opencode_connection_settings_unsupported')
+    safe_options = strings(options, ('baseURL',))
+    if 'timeout' in options:
+        if options['timeout'] is not False and (type(options['timeout']) is not int or options['timeout'] <= 0):
+            raise ValueError('opencode_connection_settings_invalid')
+        safe_options['timeout'] = options['timeout']
+    if 'baseURL' in safe_options:
+        endpoint = urllib.parse.urlsplit(safe_options['baseURL'])
+        if endpoint.username or endpoint.password or endpoint.query or endpoint.fragment:
+            raise ValueError('opencode_connection_endpoint_invalid')
+    if 'apiKey' in options:
+        safe_options['apiKey'] = secret_reference(options['apiKey'])
+    if 'headers' in options:
+        headers = options['headers']
+        if not isinstance(headers, dict) or any(not isinstance(key, str) for key in headers):
+            raise ValueError('opencode_connection_settings_invalid')
+        safe_options['headers'] = {key: secret_reference(value) for key, value in headers.items()}
+    if safe_options:
+        selected['options'] = safe_options
+    if 'env' in connection:
+        names = connection['env']
+        if not isinstance(names, list) or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name) for name in names):
+            raise ValueError('opencode_connection_settings_invalid')
+        selected['env'] = list(names)
+    models = connection.get('models', {})
+    if not isinstance(models, dict):
+        raise ValueError('opencode_connection_settings_invalid')
+    if model_id in models:
+        model_config = models[model_id]
+        safe_model = strings(model_config, ('id', 'name'))
+        if 'provider' in model_config:
+            safe_model['provider'] = strings(model_config['provider'], ('npm', 'api'))
+        selected['models'] = {model_id: safe_model}
+    metadata.update(provider=provider_id, model_id=model_id, projected_connection=True)
+    return env, {provider_id: selected}, metadata
 
 
 def credential_settings(provider, environment, source=None):
@@ -89,10 +239,14 @@ def capabilities():
 
 
 def executable(provider, configured=None):
-    candidate = Path(configured) if configured else None
-    if candidate and candidate.exists() and candidate.suffix.lower() not in (".cmd", ".ps1"):
+    if provider not in PROVIDERS:
+        raise ValueError("unsupported provider")
+    candidate = Path(configured) if configured is not None else None
+    if candidate is not None and (not configured or not candidate.is_file()):
+        raise FileNotFoundError("configured candidate executable unavailable")
+    if candidate and candidate.suffix.lower() not in (".cmd", ".ps1"):
         return str(candidate)
-    found = str(candidate) if candidate and candidate.exists() else shutil.which(provider)
+    found = str(candidate) if candidate is not None else shutil.which(provider)
     if not found:
         raise FileNotFoundError(provider)
     folder = Path(found).parent
@@ -134,6 +288,7 @@ def probe(provider, configured=None):
 
 
 def build_invocation(spec):
+    from .reasoning import resolve_reasoning
     provider = spec["provider"]
     if provider not in PROVIDERS:
         raise ValueError("unsupported provider")
@@ -143,7 +298,21 @@ def build_invocation(spec):
     if not isinstance(model, str) or not model:
         raise ValueError("explicit model required")
     root, audit = Path(spec["workspace"]), Path(spec["audit_dir"])
+    reasoning = resolve_reasoning(spec, spec.get("reasoning_support", {}))
     env, provider_options, auth_metadata = credential_settings(provider, spec.get("env", os.environ), spec.get("credential_settings"))
+    opencode_connections = {}
+    if provider == 'opencode':
+        env, opencode_connections, auth_metadata = _opencode_connection_settings(env, spec.get('credential_settings'), model)
+    # Authentication remains in process memory; inherited generation overrides
+    # never compete with the requested profile, including cli_default.
+    removed_overrides = []
+    override_names = {"CLAUDE_CODE_EFFORT_LEVEL", "MAX_THINKING_TOKENS", "CLAUDE_CODE_THINKING_BUDGET",
+                      "CODEX_MODEL_REASONING_EFFORT", "CODEX_REASONING_EFFORT", "OPENAI_REASONING_EFFORT",
+                      "OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR"}
+    for key in list(env):
+        if key.upper() in override_names:
+            removed_overrides.append(key)
+            env.pop(key)
     command = spec["worker_command"]
     args = [spec["executable"]]
     tool_timeout = spec.get('tool_timeout_s', 180)
@@ -158,8 +327,20 @@ def build_invocation(spec):
         overlay = {"model": model, "small_model": model, "plugin": [], "mcp": mcp,
                    "permission": {"*": "deny", "benchmark_*": "allow"}, "snapshot": False,
                    "agent": {"benchmark": {"mode": "primary", "model": model, "prompt": "Follow only this case contract. Use benchmark MCP tools."}}}
+        if opencode_connections:
+            overlay['provider'] = opencode_connections
+        if reasoning['variant_resolved_options'] is not None:
+            if '/' not in model or not all(model.split('/', 1)):
+                raise ValueError('reasoning_variant_model_identity_unverified')
+            model_provider, model_id = model.split('/', 1)
+            selected_provider = overlay.setdefault('provider', {}).setdefault(model_provider, {})
+            selected_model = selected_provider.setdefault('models', {}).setdefault(model_id, {})
+            selected_model['variants'] = {reasoning['resolved']['value']: reasoning['variant_resolved_options']}
+        isolated_config = audit / 'opencode-config'
+        isolated_config.mkdir(exist_ok=True)
         env.update(OPENCODE_CONFIG_CONTENT=json.dumps(overlay), OPENCODE_DISABLE_PROJECT_CONFIG="1",
-                   OPENCODE_DISABLE_CLAUDE_CODE="1", OPENCODE_DISABLE_DEFAULT_PLUGINS="1")
+                   OPENCODE_DISABLE_CLAUDE_CODE="1", OPENCODE_DISABLE_DEFAULT_PLUGINS="1",
+                   OPENCODE_CONFIG_DIR=str(isolated_config), XDG_CONFIG_HOME=str(isolated_config))
         args += ["run", "--pure", "--format", "json", "--model", model, "--agent", "benchmark", "--dir", str(root), "--title", spec.get('cad_backend', 'fusion') + " " + session]
     elif provider == "codex":
         config = {"mcp_servers": {"benchmark": {"command": command[0], "args": command[1:], "tool_timeout_sec": tool_timeout}}}
@@ -182,22 +363,35 @@ def build_invocation(spec):
                  "--session-id", session, "--no-session-persistence", "--strict-mcp-config", "--mcp-config", str(config_file),
                  "--settings", str(settings_file), "--setting-sources", "", "--tools", "", "--disable-slash-commands",
                  "--permission-mode", "dontAsk", "--no-chrome"]
-    expected_actual_model = spec.get("expected_actual_model", model)
-    if provider == "claude" and model in ("sonnet", "opus", "haiku"):
+    if provider == 'codex':
+        args[-1:-1] = reasoning['native_parameters']
+    else:
+        args += reasoning['native_parameters']
+    expected_actual_model = spec.get("expected_actual_model") or model
+    if provider == "claude" and model in ("sonnet", "opus", "haiku") and not spec.get('expected_actual_model'):
         expected_actual_model = env.get("ANTHROPIC_DEFAULT_" + model.upper() + "_MODEL")
     return {"args": args, "env": env, "input": spec["prompt"].encode("utf-8"), "session_id_requested": session,
             "budget_scope": "mcp_tools_scope", "provider": provider, "auth_metadata": auth_metadata,
-            "expected_actual_model": expected_actual_model}
+            "expected_actual_model": expected_actual_model, "reasoning": reasoning,
+            "removed_reasoning_override_names": sorted(removed_overrides)}
 
 
-def inspect_events(provider, events, model, expected_actual_model=None):
+def inspect_events(provider, events, model, expected_actual_model=None, *, reasoning=None):
     errors, sessions, actual_models = [], set(), set()
+    observed_reasoning = []
     terminal = False
     for event in events:
         if not isinstance(event, dict):
             errors.append("invalid_event")
             continue
         kind = event.get("type")
+        # Only typed session metadata can attest a control. Assistant text and
+        # tool results may quote the request and are never observation evidence.
+        metadata_event = ((kind == 'system' and event.get('subtype') == 'init')
+                          or kind in ('session.created', 'session.updated'))
+        detail = event.get('reasoning')
+        if metadata_event and isinstance(detail, dict) and set(detail) == {'control', 'value'}:
+            observed_reasoning.append(detail)
         session = event.get("sessionID") or event.get("session_id") or event.get("thread_id")
         if isinstance(session, str):
             sessions.add(session)
@@ -224,10 +418,26 @@ def inspect_events(provider, events, model, expected_actual_model=None):
         errors.append("model_identity_mismatch")
     if provider == "claude" and not actual_models:
         errors.append("model_identity_missing")
+    reasoning_projection = {}
+    if reasoning is not None:
+        from .reasoning import observe_reasoning
+        checked = reasoning
+        for detail in observed_reasoning:
+            try:
+                checked = observe_reasoning(checked, detail, source='cli_session_metadata')
+            except ValueError:
+                errors.append('reasoning_metadata_invalid')
+            if checked.get('reasoning_verification_status') == 'mismatch':
+                errors.append('reasoning_mismatch')
+        if len({json.dumps(detail, sort_keys=True) for detail in observed_reasoning}) > 1:
+            errors.append('reasoning_identity_changed')
+        reasoning_projection = {key: checked[key] for key in ('requested_reasoning', 'resolved_reasoning',
+            'observed_reasoning', 'reasoning_verification_status', 'reasoning_support_evidence',
+            'emitted_reasoning_parameters', 'reasoning_token_usage_or_null') if key in checked}
     return {"verified": not errors, "errors": sorted(set(errors)), "session_id": next(iter(sessions), None),
             "requested_model": model, "actual_model": next(iter(actual_models), None),
             "expected_actual_model": expected, "model_verified": model_verified,
-            "model_identity_source": "provider_metadata" if actual_models else "requested_only"}
+            "model_identity_source": "provider_metadata" if actual_models else "requested_only", **reasoning_projection}
 
 
 class _WindowsProcessTree:
@@ -391,6 +601,7 @@ def launch_fresh(spec, processes):
     invocation = build_invocation(spec)
     audit = Path(spec["audit_dir"])
     atomic(audit / "credential-source.json", invocation["auth_metadata"])
+    atomic(audit / "reasoning-configuration.json", invocation['reasoning'])
     (audit / "prompt.txt").write_bytes(invocation["input"])
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {"start_new_session": True}
     started = time.monotonic()
@@ -434,7 +645,12 @@ def launch_fresh(spec, processes):
             events.append(json.loads(line))
         except ValueError:
             malformed = True
-    verification = inspect_events(spec["provider"], events, spec["model"], invocation["expected_actual_model"])
+    verification = inspect_events(spec["provider"], events, spec["model"], invocation["expected_actual_model"],
+                                  reasoning=invocation['reasoning'])
+    reasoning_verification = {key: value for key, value in verification.items()
+        if key in ('requested_reasoning', 'resolved_reasoning', 'observed_reasoning', 'reasoning_verification_status',
+                   'reasoning_support_evidence', 'emitted_reasoning_parameters', 'reasoning_token_usage_or_null')}
+    reasoning_errors = [error for error in verification['errors'] if error.startswith('reasoning_')]
     if spec["provider"] == "opencode" and verification.get("session_id") and not timed_out and not cancelled:
         # Unlike the attached client stream, stored messages are authoritative.
         # Export reads only this newly created session and does not invoke a model.
@@ -464,6 +680,9 @@ def launch_fresh(spec, processes):
             verification.update(verified=False, errors=verification.get("errors", []) + ["smoke_tail_ack_missing"])
     if malformed:
         verification.update(verified=False, errors=verification["errors"] + ["malformed_event_stream"])
+    verification.update(reasoning_verification)
+    if reasoning_errors:
+        verification.update(verified=False, errors=sorted(set(verification['errors'] + reasoning_errors)))
     atomic(audit / "session-verification.json", verification)
     return {"returncode": process.returncode, "timed_out": timed_out, "cancelled": cancelled,
             "elapsed_s": time.monotonic() - started, "session_verification": verification,
