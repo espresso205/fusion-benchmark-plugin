@@ -16,6 +16,8 @@ HTML 报告的两个命令入口、九个 `src/` 模块和九个 `report_assets/
 
 构建失败保留 `INCOMPLETE`；完整性检查不会接受此标记。成功后输出 `PACKAGE_MANIFEST.json`、`SHA256SUMS`、`runtime.lock.json`、依赖许可清单以及可选 ZIP 与独立 SHA256。
 
+若构建用的 Python `ssl.py` 引用了相邻的 `codex-rejected-cas.pem`，构建器必须从同一运行时保留该文件原字节；缺失时明确失败，不改写 SSL 模块或关闭证书验证。移位验收同时创建启用主机名与证书验证的 SSL context，并创建 urllib HTTP opener，防止依赖导入通过但本地 Fusion HTTP 握手尚未发送就失败。
+
 ```powershell
 python -B scripts/build_portable_plugin.py --verify ../build-output/fusion-benchmark-plugin-v4.0.0
 ```

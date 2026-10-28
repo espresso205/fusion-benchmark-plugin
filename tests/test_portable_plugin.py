@@ -111,6 +111,40 @@ class PortablePluginTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "root found")
 
+    def test_runtime_preserves_required_ssl_companion_without_other_private_pem_files(self):
+        base = self.root / 'base'
+        for name in ('python.exe', 'python312.dll', 'python3.dll', 'vcruntime140.dll', 'LICENSE.txt'):
+            self.write('base/' + name)
+        self.write('base/Lib/ssl.py', b"COMPANION = 'codex-rejected-cas.pem'\n")
+        companion = self.write('base/Lib/codex-rejected-cas.pem', b'provider-owned certificate data')
+        self.write('base/Lib/private-client-key.pem', b'private key must not be copied')
+        target = self.root / 'relocated runtime'
+        self.api.copy_runtime(base, target, ['ssl'], '312')
+        self.assertTrue((target / 'Lib/codex-rejected-cas.pem').is_file())
+        self.assertEqual((target / 'Lib/codex-rejected-cas.pem').read_bytes(), companion.read_bytes())
+        self.assertFalse((target / 'Lib/private-client-key.pem').exists())
+
+    def test_runtime_rejects_missing_referenced_ssl_companion(self):
+        base = self.root / 'base'
+        for name in ('python.exe', 'python312.dll', 'python3.dll', 'vcruntime140.dll', 'LICENSE.txt'):
+            self.write('base/' + name)
+        self.write('base/Lib/ssl.py', b"COMPANION = 'codex-rejected-cas.pem'\n")
+        with self.assertRaisesRegex(ValueError, 'missing required source'):
+            self.api.copy_runtime(base, self.root / 'target', ['ssl'], '312')
+
+    @unittest.skipUnless(os.name == 'nt' and sys.version_info[:2] == (3, 12), 'Windows CPython 3.12 runtime integration')
+    def test_relocated_runtime_builds_verified_ssl_context_and_http_opener(self):
+        target = self.root / 'ssl 中文 runtime' / 'runtime' / 'python'
+        self.api.copy_runtime(sys.base_prefix, target, sys.stdlib_module_names, '312')
+        result = subprocess.run([str(target / 'python.exe'), '-X', 'utf8', '-B', '-c',
+            "import ssl,urllib.request; c=ssl.create_default_context(); "
+            "assert c.check_hostname and c.verify_mode==ssl.CERT_REQUIRED; "
+            "urllib.request.build_opener(); print('SSL and HTTP client ready')"],
+            cwd=self.root, capture_output=True, text=True, encoding='utf-8',
+            env=dict(os.environ, PYTHONHOME='Z:/missing', PYTHONPATH='Z:/missing'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('SSL and HTTP client ready', result.stdout)
+
     @unittest.skipUnless(os.name == "nt" and sys.version_info[:2] == (3, 12), "Windows CPython 3.12 runtime integration")
     def test_snapshot_evaluator_and_worker_import_snapshot_src(self):
         bundle = self.root / "bundle"

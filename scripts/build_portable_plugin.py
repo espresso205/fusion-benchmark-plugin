@@ -269,6 +269,13 @@ def copy_runtime(base, target, stdlib_modules, version_tag):
         native = base / "DLLs" / (name + ".pyd")
         if native.is_file():
             copy_file(checked_source(base, f"DLLs/{name}.pyd"), target / "DLLs" / native.name)
+    # Some approved CPython distributions require this adjacent trust-policy
+    # payload when constructing any SSL context (even urllib's HTTP opener).
+    # Preserve the exact runtime-owned file; never sweep up arbitrary PEM keys.
+    ssl_source = target / "Lib/ssl.py"
+    if ssl_source.is_file() and b"codex-rejected-cas.pem" in ssl_source.read_bytes():
+        companion = "Lib/codex-rejected-cas.pem"
+        copy_file(checked_source(base, companion), target / companion)
     for name in NATIVE_STDLIB_FILES:
         if (base / "DLLs" / name).is_file():
             copy_file(checked_source(base, "DLLs/" + name), target / "DLLs" / name)
@@ -369,7 +376,9 @@ def build(source, python, output, archive=False):
     # variables, proving the interpreter uses only the package _pth entries.
     env = dict(os.environ, PYTHONHOME="Z:/not-an-installed-python", PYTHONPATH="Z:/not-a-site-packages", PYTHONDONTWRITEBYTECODE="1")
     check = subprocess.run([str(output / "runtime/python/python.exe"), "-B", "-c",
-        "import sys, pathlib, numpy, scipy, OCP, vtk, build123d, trimesh, manifold3d, open3d, ezdxf; "
+        "import sys, pathlib, ssl, urllib.request, numpy, scipy, OCP, vtk, build123d, trimesh, manifold3d, open3d, ezdxf; "
+        "ctx=ssl.create_default_context(); assert ctx.check_hostname and ctx.verify_mode==ssl.CERT_REQUIRED; "
+        "urllib.request.build_opener(); "
         "import fusion_pipeline.cli, src.metrics; "
         "root=pathlib.Path(sys.executable).resolve().parents[2]; "
         "assert all(pathlib.Path(p).resolve().is_relative_to(root) for p in sys.path); print('portable imports OK')"],
