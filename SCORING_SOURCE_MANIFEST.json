@@ -418,9 +418,10 @@
       "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
     },
     "fusion_pipeline/candidate_runtime.py": {
-      "bytes": 18133,
-      "sha256": "48912f001e57bff1596e551c9a9e093f26d9d32b96abedfdd294ebeee886e0e6",
-      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+      "bytes": 18279,
+      "sha256": "930afe431cd40b3454061a2d7a7fff6a795d62fc022a6319e55318e6e3a590d7",
+      "previous_sha256": "48912f001e57bff1596e551c9a9e093f26d9d32b96abedfdd294ebeee886e0e6",
+      "source": "2026-10-29 smoke prompt clarifies entire final response must equal SMOKE_OK; strict validator and scoring algorithms/weights unchanged; 20 focused tests passed"
     },
     "fusion_pipeline/capability_study.py": {
       "bytes": 50760,
