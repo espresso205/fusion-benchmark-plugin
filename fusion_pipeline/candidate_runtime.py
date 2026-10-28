@@ -77,7 +77,9 @@ def freeze_attempt(config, output_dir, *, contract, observed_launch, case, input
                    'read_input(name=TASK.md), and read selected skills. '
                    + ('Query one read-only native CAD status through cad_tools/cad_call. ' if 'cad_native' in public['mcp_servers'] else
                       'Do not contact any CAD service or submit native geometry. ')
-                   + 'Do not create, modify, close documents or submit. Finish with exactly SMOKE_OK.\n')
+                   + 'Do not create, modify, close documents or submit. '
+                   'Your entire final response must be the single literal SMOKE_OK, '
+                   'with no summary, explanation, table, Markdown fence, or other text.\n')
     launch = {key: copy.deepcopy(config[key]) for key in LAUNCH_FIELDS if key in config}
     launch.update(observed_launch)
     runtime = {**copy.deepcopy(manifest), **copy.deepcopy(observed_launch),
