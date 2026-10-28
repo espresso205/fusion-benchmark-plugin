@@ -56,23 +56,20 @@ test('difference partitions use one world origin and distinct matched/extra/miss
     {status:'ready',scope:'whole_model',layers:{matched:translate(1),extra:translate(11),missing:translate(2)}});
   assert.equal(outcome.difference.status,'ready');
   view.setMode('difference');view.display('difference');
-  assert.equal(view.models.candidate.visible,true);assert.equal(view.models.reference.visible,false);
+  assert.equal(view.models.candidate.visible,false);assert.equal(view.models.reference.visible,false);
   const ghost=view.models.candidate.children[0];
-  assert.equal(ghost.material.transparent,true);assert.equal(ghost.material.opacity,.12);
-  assert.equal(ghost.material.color.getHex(),0x9ca3af);assert.equal(ghost.material.depthWrite,false);
+  assert.equal(ghost.visible,true);
   assert.deepEqual(Object.keys(view.layers).sort(),['extra','matched','missing']);
   assert.equal(view.layers.extra.children[0].geometry.attributes.position.array[0]-view.layers.matched.children[0].geometry.attributes.position.array[0],10);
   for(const [name,color] of [['matched',0x35baf2],['extra',0xef4444],['missing',0xf59e0b]]){
     assert.equal(view.layers[name].visible,true);
     assert.equal(view.layers[name].children[0].material.color.getHex(),color);
     const body=view.layers[name].children[0];
-    assert.equal(body.material.transparent,true);
-    assert.equal(body.material.opacity,name==='matched'?.3:.85);
-    assert.equal(body.material.depthWrite,false,'transparent matched solids must not hide interior differences');
-    assert.ok(body.renderOrder>ghost.renderOrder,'colored partitions must render over the candidate context');
+    assert.equal(body.material.transparent,false);
+    assert.equal(body.material.opacity,1);
+    assert.equal(body.material.depthWrite,true,'opaque differences must obey physical occlusion');
+    assert.equal(view.layers[name].children[1].visible,false,'Boolean cut edges must not become colored stripes');
   }
-  assert.ok(view.layers.extra.children[0].renderOrder>view.layers.matched.children[0].renderOrder);
-  assert.ok(view.layers.missing.children[0].renderOrder>view.layers.matched.children[0].renderOrder);
   view.display('candidate');
   assert.equal(view.models.candidate.visible,true);
   assert.equal(ghost.material.color.getHex(),0xffa34c);assert.equal(ghost.material.opacity,1);
@@ -95,6 +92,31 @@ test('failed difference layers retain valid layers and empty partitions are not 
   assert.equal(unavailable.difference.status,'unavailable');
   assert.equal(unavailable.difference.reason,'interface_not_supplied');
   view.clear();
+});
+
+test('surface and raw difference layers are exclusive and internal differences can be isolated',async()=>{
+  const view=await inspectionView();
+  await view.setMeshes({candidate:triangle,reference:triangle},{status:'completed',
+    layers:{matched:triangle,missing:triangle},surface_layers:{matched:triangle},
+    visualization:{kind:'surface-distance-tolerance',tolerance_mm:.02}});
+  view.setMode('difference');view.display('difference');
+  assert.equal(view.surfaceLayers.matched.visible,true);
+  assert.ok(Object.values(view.layers).every(layer=>!layer.visible));
+  view.setMode('difference_raw');view.setDifferenceLayers({matched:false});view.display('difference_raw');
+  assert.equal(view.layers.matched.visible,false);assert.equal(view.layers.missing.visible,true);
+  assert.ok(Object.values(view.surfaceLayers).every(layer=>!layer.visible));
+  assert.ok(Object.values(view.models).every(layer=>!layer.visible));view.clear();
+});
+
+test('failed surface preparation falls back as one unit and removes the tolerance claim',async()=>{
+  const view=await inspectionView();
+  await view.setMeshes({candidate:triangle,reference:triangle},{status:'completed',
+    layers:{matched:triangle,extra:triangle},surface_layers:{matched:triangle,extra:{...triangle,indices:[0,1,999]}},
+    visualization:{kind:'surface-distance-tolerance',tolerance_mm:.02}});
+  assert.deepEqual(Object.keys(view.surfaceLayers),[]);
+  assert.equal(view.difference.visualization.tolerance_mm,0);
+  assert.equal(view.difference.visualization.kind,'raw-volume');
+  view.display('difference');assert.ok(Object.values(view.layers).every(layer=>layer.visible));view.clear();
 });
 
 test('completed and ok backend partitions enable difference inspection',async()=>{
@@ -288,7 +310,7 @@ test('browser canvas remains bounded and direction axes follow the camera and ar
       assert.ok(measured.topAxes.x[2]>measured.topAxes.x[0],'top view X axis points right');
       assert.ok(measured.topAxes.y[3]<measured.topAxes.y[1],'top view Y axis points up');
       assert.ok(measured.frontAxes.z[3]<measured.frontAxes.z[1],'front view Z axis points up');
-      assert.equal(measured.state.custom,true);assert.ok(measured.state.zoom>1);
+      assert.equal(measured.state.custom,false,'zoom preserves the selected standard direction');assert.ok(measured.state.zoom>1);
       assert.equal(measured.leakedEvents,0);assert.equal(measured.remainingNodes,0);
     }finally{rmSync(folder,{recursive:true,force:true,maxRetries:3,retryDelay:100});}
   });

@@ -4,6 +4,11 @@ import json
 from pathlib import Path
 import sys
 
+# Embedded Python's isolated _pth mode omits the script directory. Establish
+# this worker's own import root before importing its sibling display modules.
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 
 def read_step_mesh(source, expected):
     # Imports remain inside the child operation so plain report generation is
@@ -59,9 +64,9 @@ def generate(request):
 
 def generate_difference(request):
     if __package__:
-        from .display_comparison import compare_meshes, unavailable
+        from .display_comparison import compare_meshes, unavailable, surface_layers
     else:
-        from display_comparison import compare_meshes, unavailable
+        from display_comparison import compare_meshes, unavailable, surface_layers
     interface = request.get('interface')
     scope = 'interface' if interface is not None else 'whole_model'
     try:
@@ -85,6 +90,24 @@ def generate_difference(request):
                     raise ValueError('interface_input_unavailable') from None
                 regions.append({'mesh': mesh, 'fit_type': region['fit_type']})
         result = compare_meshes(meshes, regions=regions)
+        if result['status'] == 'completed' and regions is None:
+            tolerance = max(float(mesh.get('linearDeflectionMm') or 0) for mesh in meshes.values())
+            try:
+                result['surface_layers'] = surface_layers(meshes, result['layers'], tolerance_mm=tolerance)
+                result['visualization'] = {'kind': 'surface-distance-tolerance', 'tolerance_mm': tolerance,
+                    'raw_available': True, 'surface_scope': 'union-exterior',
+                    'description': f'仅显示两模型并集的外表面，网格显示精度 {tolerance:g} mm；小于此值按容差内着色，不是工程公差。内部封闭差异及原始薄片请切换“精确体积差异”，并关闭匹配层检查。评分不变。'}
+            except Exception:
+                result['visualization'] = {'kind': 'raw-partitions', 'tolerance_mm': 0,
+                    'raw_available': True, 'description': '表面显示层不可用，展示未经容差过滤的原始体积差异。'}
+        if result.get('surface_layers'):
+            for key, mesh in result['surface_layers'].items():
+                if mesh is not None:
+                    destination = Path(request['destinations'][key]).with_name(Path(request['destinations'][key]).stem+'-surface.json')
+                    temporary = destination.with_suffix('.tmp')
+                    temporary.write_text(json.dumps(mesh, separators=(',', ':'), allow_nan=False), encoding='utf-8')
+                    temporary.replace(destination)
+                    result['surface_layers'][key] = True
         for key, mesh in result['layers'].items():
             if mesh is not None:
                 destination = Path(request['destinations'][key])
@@ -99,7 +122,7 @@ def generate_difference(request):
 
 
 def render_preview(request):
-    """Load one scene and render four split and four overlay orthographic views."""
+    """Render independent split, transparent overlay and opaque difference views."""
     import math
     import numpy as np
     import vtkmodules.vtkRenderingOpenGL2  # Register the native offscreen backend.
@@ -124,7 +147,7 @@ def render_preview(request):
     for role, path in request.get('layers', {}).items():
         mesh = json.loads(Path(path).read_text(encoding='utf-8'))
         validate_mesh(mesh); layers[role] = mesh
-    width, height = 960, 360
+    width, height = 2560, 960
     settings = preview_camera(meshes, width, height)
     camera = vtkCamera(); camera.ParallelProjectionOn()
     distance = settings['distance_mm']
@@ -135,9 +158,9 @@ def render_preview(request):
     window.SetOffScreenRendering(1); window.SetShowWindow(False)
     window.SetSize(width, height); window.SetMultiSamples(0); window.SetAlphaBitPlanes(1)
     retained, actors = [], {}
-    colors = {'candidate': (.925, .541, .196), 'reference': (.145, .549, .729),
-              'matched': (.145, .549, .729), 'extra': (.863, .235, .235),
-              'missing': (.898, .667, .133)}
+    colors = {'candidate': (1, 163/255, 76/255), 'reference': (53/255, 186/255, 242/255),
+              'matched': (53/255, 186/255, 242/255), 'extra': (239/255, 68/255, 68/255),
+              'missing': (245/255, 158/255, 11/255)}
     try:
         for role, mesh in {**meshes, **layers}.items():
             vertices = np.asarray(mesh['vertices'], dtype=np.float64).reshape(-1, 3)
@@ -171,6 +194,8 @@ def render_preview(request):
             direction = current['direction']; norm = math.sqrt(sum(v*v for v in direction))
             camera.SetPosition(*(distance*v/norm for v in direction)); camera.SetViewUp(*current['up'])
             for mode, destination in modes.items():
+                if mode == 'difference' and not layers:
+                    continue
                 for renderer in [*renderers, overlay]:
                     window.RemoveRenderer(renderer); renderer.RemoveAllViewProps()
                 for role, actor in actors.items():
@@ -182,13 +207,10 @@ def render_preview(request):
                             renderer.AddActor(actors[role])
                 else:
                     window.AddRenderer(overlay)
-                    for role in (list(layers) + ['candidate'] if layers else list(meshes)):
+                    for role in (list(layers) if mode == 'difference' else list(meshes)):
                         if role in actors:
                             actor = actors[role]
-                            opacity = {'candidate': .12, 'matched': .3, 'extra': .85, 'missing': .85}.get(role, .5)
-                            actor.GetProperty().SetOpacity(opacity if layers else .5)
-                            if layers and role == 'candidate':
-                                actor.GetProperty().SetColor(.557, .580, .608)
+                            actor.GetProperty().SetOpacity(1 if mode == 'difference' else .5)
                             overlay.AddActor(actor)
                 window.Render()
                 pixels = vtkWindowToImageFilter(); pixels.SetInput(window)
@@ -199,7 +221,7 @@ def render_preview(request):
                 temporary.replace(destination)
         metadata = {'width': width, 'height': height, 'panels': ['candidate', 'reference'],
             'camera': settings, 'cameras': cameras,
-            'overlay_kind': 'difference' if layers else 'ordinary_overlay',
+            'overlay_kind': 'ordinary_overlay', 'difference_kind': 'difference' if layers else 'unavailable',
             'rendered_triangle_counts': {
                 role: len(mesh['indices'])//3 for role, mesh in meshes.items()}}
         Path(request['metadata_path']).write_text(json.dumps(metadata), encoding='utf-8')

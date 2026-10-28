@@ -21,6 +21,10 @@ GEOMETRY_TOLERANCES = {'bbox_absolute_mm': 0.01, 'volume_relative': 1e-5, 'volum
 _SKETCH_LOOKUP_SOURCES = {
     '_vendor/solidworks_mcp/automation/features.py': '16fef5556cbcbdb6832c5e44aa5f0faabb155770f648cf5c38d04b65ddab6d78',
     'tools.py': '6f34cfe3763cdca745a41460fa4846a07cace89815e141adf1a2e1a05434c68a'}
+# This exact profile validation raises before selection or native feature edits.
+# An arbitrary invalid_input result is not evidence that a mutation never began.
+_THREAD_PROFILE_SOURCES = {**_SKETCH_LOOKUP_SOURCES,
+    '_vendor/solidworks_mcp/automation/thread_feature.py': '9635f52c1712b9d590befad593406f251e94883cab07b0b4d9ce342a92ca3b40'}
 
 
 def file_sha256(path):
@@ -232,8 +236,8 @@ class SolidWorksAdapter:
                 'native_budget_s': native_budget, 'post_probe_budget_s': probe_budget,
                 'overhead_s': overhead}
 
-    def _verified_sketch_lookup_failure(self, name, arguments, payload):
-        """Recognize only the reviewed no-write named-sketch lookup branch."""
+    def _verified_preflight_failure(self, name, arguments, payload):
+        """Recognize only reviewed no-write branches, bound to their vendor code."""
         try:
             def mutation_claim(item):
                 if isinstance(item, dict):
@@ -243,16 +247,25 @@ class SolidWorksAdapter:
                 return isinstance(item, list) and any(mutation_claim(value) for value in item)
             if mutation_claim(payload):
                 return False
-            message = 'Requested sketch was not found'
-            if (name != 'extrude_sketch' or payload.get('tool') != name
+            if name == 'extrude_sketch':
+                message, code, number, vendor = ('Requested sketch was not found',
+                    'selection_operation_failed', 104, 'swSelectionError')
+                argument, sources = 'sketch_name', _SKETCH_LOOKUP_SOURCES
+            elif name == 'create_thread':
+                message, code, number, vendor = ('Profile must be an existing local absolute .sldlfp file',
+                    'invalid_input', 107, 'swInvalidInput')
+                argument, sources = 'profile_file', _THREAD_PROFILE_SOURCES
+            else:
+                return False
+            if (payload.get('tool') != name
                     or payload.get('ok') is not False or payload.get('success') is not False
                     or payload.get('status') != 'error' or payload.get('message') != message
-                    or payload.get('error') != message or payload.get('error_code') != 'selection_operation_failed'
-                    or type(payload.get('vendor_error_code')) is not int or payload['vendor_error_code'] != 104
-                    or payload.get('vendor_error_name') != 'swSelectionError'
+                    or payload.get('error') != message or payload.get('error_code') != code
+                    or type(payload.get('vendor_error_code')) is not int or payload['vendor_error_code'] != number
+                    or payload.get('vendor_error_name') != vendor
                     or payload.get('data') != {'mutation_started': False, 'automatic_retry_allowed': False}
                     or any(type(value) is not bool for value in payload['data'].values())
-                    or not isinstance(arguments.get('sketch_name'), str) or not arguments['sketch_name'].strip()
+                    or not isinstance(arguments.get(argument), str) or not arguments[argument].strip()
                     or payload.get('arguments') != {key: value for key, value in arguments.items() if key != 'parameter_plan_token'}):
                 return False
             isolation, executor = payload.get('process_isolation', {}), payload.get('executor', {})
@@ -266,7 +279,7 @@ class SolidWorksAdapter:
                 return False
             verify_instance(self.instance, payload.get('benchmark_instance'))
             source = Path(self.config['bundle_path'])/'runtime/solidworks-plugin/src/sim_plugin_solidworks'
-            return all(file_sha256(source/relative) == digest for relative, digest in _SKETCH_LOOKUP_SOURCES.items())
+            return all(file_sha256(source/relative) == digest for relative, digest in sources.items())
         except (OSError, ValueError, TypeError, AttributeError, KeyError):
             return False
 
@@ -360,7 +373,7 @@ class SolidWorksAdapter:
             'parameter_plan_not_ready', 'instance_not_bound', 'unknown_tool', 'unknown_or_disabled_tool'}
         if (outcome == 'completed_failure' and mutating and not predispatch
                 and payload.get('data', {}).get('completion_state') not in {'completed', 'not_started'}):
-            if not (self._verified_sketch_lookup_failure(name, arguments, payload)
+            if not (self._verified_preflight_failure(name, arguments, payload)
                     or self._verified_health_contract_failure(name, arguments, payload)):
                 outcome = 'unknown'
         try:

@@ -36,7 +36,10 @@
     "Both models use one display origin and camera; no separate normalization or scoring.",
     "Offscreen VTK raster thumbnails share one orthographic camera; candidate left, reference right; no face dropping.",
     "Canvas CSS dimensions are independent of device-pixel drawing buffer; immediate initial resize and bounded grid sizing.",
-    "Four exact orthographic directions; tessellated whole-model and optional GT-bound KOR/KIR material partitions, never scoring."
+    "Four exact orthographic directions; tessellated whole-model and optional GT-bound KOR/KIR material partitions, never scoring.",
+    "Independent 2560x960 split, transparent overlay and difference previews; opaque depth-tested difference layers.",
+    "Default differences classify union exterior surfaces at display mesh precision; raw Boolean partitions remain available for enclosed defects.",
+    "Camera inspection survives mode and coordinate switches; reset and case navigation restore explicit defaults."
   ],
   "adapted_files": [
     {
@@ -45,31 +48,36 @@
     },
     {
       "path": "src/display_worker.py",
-      "sha256": "5763a5f66257d37a89ba03c72ac65ffcd701bcb454703fa9ada4bc7ad663a594"
+      "sha256": "81c27a2c3b9da70046283c6797f01b9ca32e519d051a893ff50985b6e1d3a1f9",
+      "previous_sha256": "5763a5f66257d37a89ba03c72ac65ffcd701bcb454703fa9ada4bc7ad663a594"
     },
     {
       "path": "src/display_assets.py",
-      "sha256": "ab5f0e1a1e60a818aa6dbfc49fd79d7732a11883db253fc5a294672e0a771919"
+      "sha256": "de9811671c898ac4828a6e66b5e93ecfb6601f7e1351ecd41d08cd91eec1c359",
+      "previous_sha256": "ab5f0e1a1e60a818aa6dbfc49fd79d7732a11883db253fc5a294672e0a771919"
     },
     {
       "path": "report_assets/viewer/comparison-view.js",
-      "sha256": "368a6df6d7406207dc99af505b39ccea4c0160cbed1ac065f4a54994b89ddc9d"
+      "sha256": "1dd2fe263cecbaf9db2a732614ce793385ddeb8314b7d19e5571d841a3c2af54",
+      "previous_sha256": "368a6df6d7406207dc99af505b39ccea4c0160cbed1ac065f4a54994b89ddc9d"
     },
     {
       "path": "report_assets/viewer/preview-geometry-worker.js",
-      "sha256": "daa17336f263b03cf57d895d562ff0d9255e9f8c11abd70f32848090bad35e06"
+      "sha256": "7f6e28bd1e4ccd60476a8f85e866247ccddf0211b0a1f1f706d94c676a092755",
+      "previous_sha256": "daa17336f263b03cf57d895d562ff0d9255e9f8c11abd70f32848090bad35e06"
     },
     {
       "path": "report_assets/viewer/mesh-validation.js",
       "sha256": "f84c7b1e3f3404af4cb604db25e511c443d650e1c9d35145001cc61269f9120d"
     }
   ],
-  "report_comparison_revision": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged",
+  "report_comparison_revision": "2026-10-28: independent high-resolution overlays, exterior surface differences with explicit display tolerance, raw volume layer isolation and deterministic inspection state; scoring unchanged",
   "local_display_sources": [
     {
-      "bytes": 6362,
-      "sha256": "740e926c9bb2384531ed2f71bf6325a26b459297ce72203b9452780563eb907b",
-      "path": "src/display_comparison.py"
+      "bytes": 12684,
+      "sha256": "3f8ad9188372d8f2c31604d19dd5ea4fddf4598f04ae13218e2ed5d70a438bea",
+      "path": "src/display_comparison.py",
+      "previous_sha256": "740e926c9bb2384531ed2f71bf6325a26b459297ce72203b9452780563eb907b"
     },
     {
       "bytes": 4182,

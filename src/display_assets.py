@@ -15,7 +15,7 @@ import sys
 import tempfile
 
 
-GENERATOR_VERSION = 'fusion-display/3'
+GENERATOR_VERSION = 'fusion-display/4'
 SVG_TRIANGLE_LIMIT = 2000
 VIEW_DIRECTIONS = {'iso': (1, -1, 1), 'front': (0, -1, 0),
                    'top': (0, 0, 1), 'right': (1, 0, 0)}
@@ -91,7 +91,7 @@ def preview_paths(destination):
     destination = Path(destination)
     return {angle: {mode: (destination if (angle, mode) == ('iso', 'split') else
             destination.with_name(f'{destination.stem}-{angle}-{mode}{destination.suffix}'))
-            for mode in ('split', 'overlay')} for angle in VIEW_DIRECTIONS}
+            for mode in ('split', 'overlay', 'difference')} for angle in VIEW_DIRECTIONS}
 
 
 def _run_preview(mesh_paths, destination, *, timeout, layer_paths=None):
@@ -120,7 +120,7 @@ def _run_preview(mesh_paths, destination, *, timeout, layer_paths=None):
         metadata = {}
         try:
             metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
-            if valid == 8 and result['status'] == 'completed':
+            if valid == (12 if layer_paths else 8) and result['status'] == 'completed':
                 return {'status': 'completed', 'metadata': metadata, 'previews': previews}
         except (OSError, ValueError):
             pass
@@ -158,7 +158,20 @@ def _run_difference(mesh_paths, destination, *, timeout, interface=None, referen
                             layers[key] = path
                         else:
                             layers[key] = None
-                    return {'status': 'completed', 'scope': scope, 'layers': layers}
+                    result = {'status': 'completed', 'scope': scope, 'layers': layers}
+                    if metadata.get('visualization'):
+                        result['visualization'] = metadata['visualization']
+                    if 'surface_layers' in metadata:
+                        surfaces = {}
+                        for key, path in paths.items():
+                            surface = path.with_name(path.stem+'-surface.json')
+                            if metadata['surface_layers'].get(key):
+                                validate_mesh(json.loads(surface.read_text(encoding='utf-8')))
+                                surfaces[key] = surface
+                            else:
+                                surfaces[key] = None
+                        result['surface_layers'] = surfaces
+                    return result
                 reason = metadata.get('reason', 'difference_unavailable')
                 if isinstance(reason, str) and re.fullmatch(r'(?:difference|interface)_[a-z_]{1,64}', reason):
                     result = unavailable(scope, reason)
@@ -190,9 +203,9 @@ def svg_preview(meshes, width=960, height=360, *, angle='iso', mode='split', lay
     All triangles are kept. A depth sort is a display approximation; the SVG is
     explicitly labeled as such and is not a geometry measurement.
     """
-    visible = (dict(layers or {}) if layers and mode == 'overlay' else dict(meshes))
-    if layers and mode == 'overlay' and 'candidate' in meshes:
-        visible['context'] = meshes['candidate']
+    if mode == 'difference' and not layers:
+        raise ValueError('difference_unavailable')
+    visible = dict(layers) if mode == 'difference' else dict(meshes)
     if sum(len(mesh['indices'])//3 for mesh in visible.values()) > SVG_TRIANGLE_LIMIT:
         raise ValueError('preview_too_dense_for_svg')
     settings = preview_camera(meshes, width, height, angle=angle)
@@ -223,8 +236,7 @@ def svg_preview(meshes, width=960, height=360, *, angle='iso', mode='split', lay
             xy = ' '.join(f'{p[0]*scale+panel_center:.4f},{p[1]*scale+height/2:.4f}' for p in triangle)
             color = {'reference': '#258cba', 'candidate': '#ec8a32', 'matched': '#258cba',
                      'extra': '#dc3c3c', 'missing': '#e5aa22', 'context': '#8e949b'}[role]
-            opacity = ({'context': '.12', 'matched': '.3', 'extra': '.85', 'missing': '.85'}.get(role, '.5')
-                       if mode == 'overlay' else '1')
+            opacity = '.5' if mode == 'overlay' else '1'
             polygons.append((sum(p[2] for p in triangle),
                 f'<polygon data-role="{role}" points="{xy}" fill="{color}" fill-opacity="{opacity}" stroke="{color}" stroke-width="0.25"/>'))
     polygons.sort(key=lambda item: item[0])
@@ -305,7 +317,7 @@ def build_display_assets(model_sources, output, *, timeout=60.0, workers=2, inte
         views = {}
         for view in ('world', 'scoring'):
             row = {'status': 'unavailable', 'reference': None, 'candidate': None,
-                   'thumbnail': None, 'previews': {angle: {'split': None, 'overlay': None}
+                   'thumbnail': None, 'previews': {angle: {'split': None, 'overlay': None, 'difference': None}
                        for angle in VIEW_DIRECTIONS},
                    'difference': unavailable('interface' if case in (interfaces or {}) else 'whole_model',
                                              'difference_requires_both_models'),
@@ -349,7 +361,10 @@ def build_display_assets(model_sources, output, *, timeout=60.0, workers=2, inte
                             reference_hash=row['metadata']['source_hashes'].get('reference'))
                         row['difference'] = {**difference, 'layers': {key: path.relative_to(output).as_posix()
                             if path else None for key, path in difference['layers'].items()}}
-                        layer_paths = {key: path for key, path in difference['layers'].items() if path}
+                        if 'surface_layers' in difference:
+                            row['difference']['surface_layers'] = {key: path.relative_to(output).as_posix()
+                                if path else None for key, path in difference['surface_layers'].items()}
+                        layer_paths = {key: path for key, path in difference.get('surface_layers', difference['layers']).items() if path}
                         layer_meshes = {key: json.loads(path.read_text(encoding='utf-8')) for key, path in layer_paths.items()}
                     except Exception:
                         row['difference'] = unavailable('interface' if interface is not None else 'whole_model',
@@ -361,15 +376,13 @@ def build_display_assets(model_sources, output, *, timeout=60.0, workers=2, inte
                     preview_result = {'status': 'failed', 'error': 'preview_worker_unavailable'}
                 preview_meta = {'status': preview_result['status'], 'format': None,
                     'panels': ['candidate', 'reference'], 'shared_camera': True,
-                    'overlay_kind': 'difference' if layer_paths else 'ordinary_overlay',
+                    'overlay_kind': 'ordinary_overlay', 'difference_kind': 'difference' if layer_paths else 'unavailable',
                     'legend': {'candidate': '生成模型（橙色，左）', 'reference': '标准答案（蓝色，右）'}}
                 for angle, modes in preview_result.get('previews', {}).items():
                     for mode, path in modes.items():
                         if path:
                             row['previews'][angle][mode] = path.relative_to(output).as_posix()
                 if preview_result['status'] == 'completed':
-                    row['previews'] = {angle: {mode: path.relative_to(output).as_posix()
-                        for mode, path in modes.items()} for angle, modes in preview_paths(preview).items()}
                     preview_meta.update(preview_result['metadata'])
                     preview_meta['format'] = 'png'
                 elif sum(len(mesh['indices'])//3 for mesh in meshes.values()) <= SVG_TRIANGLE_LIMIT:
@@ -377,16 +390,15 @@ def build_display_assets(model_sources, output, *, timeout=60.0, workers=2, inte
                         for mode, path in modes.items():
                             if row['previews'][angle][mode]:
                                 continue
+                            if mode == 'difference' and not layer_meshes:
+                                continue
                             try:
                                 path.write_text(svg_preview(meshes, angle=angle, mode=mode,
                                                            layers=layer_meshes), encoding='utf-8')
                                 row['previews'][angle][mode] = path.relative_to(output).as_posix()
                             except ValueError:
-                                # Dense Boolean layers may still have a small ordinary overlay.
-                                path.write_text(svg_preview(meshes, angle=angle, mode=mode), encoding='utf-8')
-                                row['previews'][angle][mode] = path.relative_to(output).as_posix()
-                                preview_meta['overlay_fallback'] = 'ordinary_overlay'
-                                preview_meta['overlay_kind'] = 'ordinary_overlay'
+                                # Never label an ordinary overlay as a difference image.
+                                continue
                     preview_meta.update({'status': 'fallback', 'format': 'mixed' if preview_result['status'] == 'partial' else 'svg',
                                          'error': preview_result['error']})
                 else:

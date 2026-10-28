@@ -12,9 +12,9 @@ export function prepareGeometry(data) {
     geometry.setAttribute('position',new THREE.BufferAttribute(data.positions,3));
     geometry.setIndex(new THREE.BufferAttribute(data.indices,1));
     geometry.computeVertexNormals();
-    edgeGeometry=new THREE.EdgesGeometry(geometry,40);
+    if(!data.skipEdges)edgeGeometry=new THREE.EdgesGeometry(geometry,40);
     return {positions:geometry.attributes.position.array,normals:geometry.attributes.normal.array,
-      indices:geometry.index.array,edges:edgeGeometry.attributes.position.array};
+      indices:geometry.index.array,edges:edgeGeometry?.attributes.position.array||new Float32Array()};
   } finally {geometry.dispose();edgeGeometry?.dispose();}
 }
 

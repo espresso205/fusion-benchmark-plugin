@@ -13,6 +13,12 @@ import xml.etree.ElementTree as ET
 
 
 class DisplayTests(unittest.TestCase):
+    def test_preview_paths_keep_overlay_and_difference_separate(self):
+        paths = self.api().preview_paths(Path('preview.png'))
+        for modes in paths.values():
+            self.assertEqual(set(modes), {'split', 'overlay', 'difference'})
+            self.assertNotEqual(modes['overlay'], modes['difference'])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -118,8 +124,9 @@ class DisplayTests(unittest.TestCase):
         frame = result['a']['views']['world']
         self.assertEqual(set(frame.get('previews', {})), {'iso', 'front', 'top', 'right'})
         for angle, modes in frame['previews'].items():
-            self.assertEqual(set(modes), {'split', 'overlay'})
-            for url in modes.values():
+            self.assertEqual(set(modes), {'split', 'overlay', 'difference'})
+            self.assertIsNone(modes['difference'])
+            for url in (modes['split'], modes['overlay']):
                 self.assertTrue((self.root / 'report' / url).is_file(), (angle, url))
         self.assertEqual(frame['thumbnail'], frame['previews']['iso']['split'])
         self.assertEqual(frame['difference']['status'], 'unavailable')
@@ -269,8 +276,11 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(result['metadata']['camera']['origin_mm'], [5.5, 5.5, 5.5])
         self.assertEqual(set(result['metadata']['cameras']), {'iso', 'front', 'top', 'right'})
         for modes in api.preview_paths(destination).values():
-            for path in modes.values():
+            for path in (modes['split'], modes['overlay']):
                 self.assertEqual(path.read_bytes()[:8], b'\x89PNG\r\n\x1a\n')
+            self.assertFalse(modes['difference'].exists())
+        self.assertEqual(result['metadata']['width'], 2560)
+        self.assertEqual(result['metadata']['height'], 960)
         from vtkmodules.vtkIOImage import vtkPNGReader
         import numpy as np
         reader = vtkPNGReader(); reader.SetFileName(str(destination)); reader.Update()
@@ -286,13 +296,13 @@ class DisplayTests(unittest.TestCase):
         self.assertAlmostEqual((oy.max()-oy.min())/(by.max()-by.min()), 1.1, delta=.025)
 
     @unittest.skipUnless(os.environ.get('RUN_GEOMETRY_TESTS') == '1', 'geometry tests disabled')
-    def test_overlay_reveals_amber_missing_material_inside_matched_shell(self):
+    def test_difference_is_opaque_and_separate_from_ordinary_overlay(self):
         api = self.api()
         import manifold3d as m
         import numpy as np
         from vtkmodules.vtkIOImage import vtkPNGReader
         outer = m.Manifold.cube([6, 6, 6])
-        inner = m.Manifold.cube([2, 2, 2]).translate([2, 2, 2])
+        inner = m.Manifold.cube([2, 2, 2]).translate([2, 0, 4])
         paths = {}
         for name, solid in [('candidate', outer-inner), ('reference', outer),
                             ('matched', outer-inner), ('missing', inner)]:
@@ -306,14 +316,14 @@ class DisplayTests(unittest.TestCase):
             layer_paths={key: paths[key] for key in ('matched', 'missing')})
         self.assertEqual(result['status'], 'completed', result)
         reader = vtkPNGReader()
-        reader.SetFileName(str(self.root/'overlay-front-overlay.png')); reader.Update()
+        self.assertNotEqual((self.root/'overlay-front-overlay.png').read_bytes(),
+                            (self.root/'overlay-front-difference.png').read_bytes())
+        reader.SetFileName(str(self.root/'overlay-front-difference.png')); reader.Update()
         data = reader.GetOutput()
         pixels = np.frombuffer(memoryview(data.GetPointData().GetScalars()), dtype=np.uint8).reshape(-1, 3).astype(float)
         red, green, blue = pixels.T
-        # The blue translucent shell mixes with amber, so recognize its warm
-        # hue after compositing instead of expecting the unmixed layer color.
-        amber = (red > green*1.05) & (red < green*1.55) & (green > blue*1.5)
-        self.assertGreater(int(amber.sum()), 100, 'matched/context must not hide the inner missing volume')
+        amber = (red > green*1.2) & (red < green*1.8) & (green > blue*2)
+        self.assertGreater(int(amber.sum()), 100, 'visible missing material must have an unmixed amber hue')
 
     @unittest.skipUnless(os.environ.get('RUN_GEOMETRY_TESTS') == '1', 'geometry tests disabled')
     def test_real_box_mesh_uses_mm_and_preserves_ten_percent_scale_difference(self):
@@ -369,7 +379,8 @@ class DisplayTests(unittest.TestCase):
             actual = {key: volume(json.loads((self.root / 'report' / url).read_text(encoding='utf-8')))
                       if url else 0 for key, url in frame['difference']['layers'].items()}
             self.assertEqual(actual, expected)
-            self.assertEqual(frame['metadata']['preview']['overlay_kind'], 'difference')
+            self.assertEqual(frame['metadata']['preview']['overlay_kind'], 'ordinary_overlay')
+            self.assertEqual(frame['metadata']['preview']['difference_kind'], 'difference')
         for role, data in original.items():
             self.assertEqual(Path(slots[role]['path']).read_bytes(), data)
         self.assertNotIn(str(self.root), json.dumps(result))

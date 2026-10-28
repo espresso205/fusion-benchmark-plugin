@@ -758,6 +758,8 @@ class Trial:
             classification = 'candidate_process_tree_unconfirmed'
         elif gateway.get("pending_cad") or gateway.get("pending_fusion"):
             classification = "cad_task_unknown" if cad_run else "fusion_task_unknown"
+        elif gateway.get("cad_workspace_unconfirmed"):
+            classification = "cad_workspace_unconfirmed"
         elif gateway.get("calls", 0) > contract["max_tool_calls"]:
             classification = "budget_exceeded"
         elif not result["session_verification"]["verified"]:
@@ -1021,10 +1023,29 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
         result = self.launch(workspace, self.run / 'audit' / case, prompt)
         row['execution'] = {key: value for key, value in result.items() if key != 'guard'}
         row['ended_at_utc'] = utc()
-        if result['timed_out'] or result['guard_classification'] != 'clear':
-            row.update(state='reconciliation_required', failure_stage='modeling')
+        guard, cleanup = result.get('guard', {}), result.get('process_cleanup', {})
+        # A candidate can finish its explanation without opening CAD (for
+        # example, an unreadable drawing). This is a missing submission, not an
+        # unknown native operation. Require both process and desktop evidence.
+        if (result['guard_classification'] == 'submission_unconfirmed'
+                and result['timed_out'] is False and not result.get('cancelled')
+                and not self._processes and cleanup.get('verified_stopped') is True
+                and type(cleanup.get('remaining_processes')) is int and cleanup['remaining_processes'] == 0
+                and type(guard.get('cad_calls')) is int and guard['cad_calls'] == 0
+                and type(guard.get('pending_cad')) is int and guard['pending_cad'] == 0
+                and not guard.get('pending_fusion') and not guard.get('cad_workspace_unconfirmed')
+                and guard.get('submitted') is False and guard.get('owned_documents') == []):
+            self.probe('after_' + case)
+            self.verify_public_inputs(row)
+            row.update(state='candidate_missing', failure_stage='submission',
+                       failure_reason='no_submission_without_cad_calls')
             self.save()
-            raise RuntimeError(case + ': CAD completion unknown; no further modeling dispatched')
+            return
+        if result['timed_out'] or result['guard_classification'] != 'clear':
+            row.update(state='reconciliation_required', failure_stage='modeling',
+                       failure_reason=result['guard_classification'])
+            self.save()
+            raise RuntimeError(case + ': ' + result['guard_classification'] + '; no further modeling dispatched')
         if self._processes:
             raise RuntimeError('candidate process cleanup incomplete; cannot freeze submission')
         cleanup = result.get('process_cleanup') or {}

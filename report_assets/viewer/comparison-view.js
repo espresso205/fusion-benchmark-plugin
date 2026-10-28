@@ -14,7 +14,7 @@ export class ComparisonView {
     this.view='iso';this.custom=false;this.onViewChange=onViewChange;
     [this.azimuth,this.elevation]=directions.iso;this.radius = 80;
     this.target = new THREE.Vector3();
-    this.models = {};this.layers={};
+    this.models = {};this.layers={};this.surfaceLayers={};this.differenceVisible={matched:true,extra:true,missing:true};
     this.visible = {reference:true, candidate:true};
     this.opacity = {reference:.20, candidate:.55};
     this.scene = new THREE.Scene();
@@ -67,7 +67,7 @@ export class ComparisonView {
       last=[event.clientX,event.clientY];this.custom=true;this.notifyViewChange();this.request();
     });
     for(const type of ['pointerup','pointercancel','lostpointercapture'])this.listen(type,()=>{dragging=false;this.pointerId=null;});
-    this.listen('wheel',event=>{event.preventDefault();this.camera.zoom=Math.max(.05,Math.min(100,this.camera.zoom*(event.deltaY>0?.89:1.12)));this.camera.updateProjectionMatrix();this.custom=true;this.notifyViewChange();this.request();},{passive:false});
+    this.listen('wheel',event=>{event.preventDefault();this.zoomBy(event.deltaY>0?.89:1.12);},{passive:false});
     this.setMode('split');
   }
   createAxes() {
@@ -110,7 +110,7 @@ export class ComparisonView {
   }
   fit() {
     const box=new THREE.Box3();
-    for(const group of [...Object.values(this.models),...Object.values(this.layers||{})])box.union(new THREE.Box3().setFromObject(group));
+    for(const group of [...Object.values(this.models),...Object.values(this.layers||{}),...Object.values(this.surfaceLayers||{})])box.union(new THREE.Box3().setFromObject(group));
     if(!box.isEmpty()) {
       this.target.copy(box.getCenter(new THREE.Vector3()));
       const size=box.getSize(new THREE.Vector3());
@@ -130,7 +130,7 @@ export class ComparisonView {
     this.camera.updateProjectionMatrix();
   }
   setMode(mode) {
-    if(!['split','overlay','reference','candidate','difference'].includes(mode))throw Error('invalid_view_mode');
+    if(!['split','overlay','reference','candidate','difference','difference_raw'].includes(mode))throw Error('invalid_view_mode');
     this.mode=mode;this.host.dataset.mode=mode;
     this.updateProjection();this.notifyViewChange();this.request();
   }
@@ -141,6 +141,16 @@ export class ComparisonView {
     this.notifyViewChange();this.request();
   }
   resetView() {this.fit();this.setView('iso');}
+  setZoom(value) {this.camera.zoom=Math.max(.05,Math.min(100,Number(value)||1));this.camera.updateProjectionMatrix();this.notifyViewChange();this.request();}
+  zoomBy(factor) {this.setZoom(this.camera.zoom*factor);}
+  setDifferenceLayers(visible) {this.differenceVisible={matched:true,extra:true,missing:true,...visible};this.request();}
+  getCameraState() {return {azimuth:this.azimuth,elevation:this.elevation,up:this.camera.up.toArray(),view:this.view,custom:!!this.custom,zoom:this.camera.zoom};}
+  setCameraState(state) {
+    if(!state||![state.azimuth,state.elevation].every(Number.isFinite))return;
+    this.azimuth=state.azimuth;this.elevation=state.elevation;this.view=Object.hasOwn(directions,state.view)?state.view:'iso';this.custom=!!state.custom;
+    if(Array.isArray(state.up)&&state.up.length===3&&state.up.every(Number.isFinite))this.camera.up.fromArray(state.up);
+    this.setZoom(state.zoom||1);
+  }
   setControls(visible,opacity) {this.visible=visible;this.opacity=opacity;this.request();}
   listen(type, callback, options) {
     this.host.addEventListener(type,callback,options);
@@ -149,14 +159,14 @@ export class ComparisonView {
   clear() {
     ++this.meshToken;
     for(const job of this.workers.splice(0)) job.cancel();
-    for(const group of [...Object.values(this.models),...Object.values(this.layers||{})]) {
+    for(const group of [...Object.values(this.models),...Object.values(this.layers||{}),...Object.values(this.surfaceLayers||{})]) {
       group.traverse(child=>{
         child.geometry?.dispose();
         for(const material of [].concat(child.material || []))material.dispose();
       });
       this.scene.remove(group);
     }
-    this.models={};this.layers={};this.difference={status:'unavailable',scope:'whole_model'};
+    this.models={};this.layers={};this.surfaceLayers={};this.difference={status:'unavailable',scope:'whole_model'};
     this.host.dataset.geometryState='empty';this.host.dataset.differenceState='unavailable';this.request();
   }
   dispose() {
@@ -173,7 +183,7 @@ export class ComparisonView {
     this.host.style.position=this.previousPosition;
     this.onViewChange=null;
   }
-  prepare(positions, indices) {
+  prepare(positions, indices, skipEdges=false) {
     return new Promise((resolve,reject)=>{
       const worker=new Worker(new URL('./preview-geometry-worker.js',import.meta.url),{type:'module'});
       let settled=false;
@@ -188,7 +198,7 @@ export class ComparisonView {
       this.workers.push(job);
       worker.onmessage=({data})=>done(data.error?'mesh_prepare_failed':null,data);
       worker.onerror=()=>done('mesh_prepare_failed');
-      try {worker.postMessage({positions,indices},[positions.buffer,indices.buffer]);}
+      try {worker.postMessage({positions,indices,skipEdges},[positions.buffer,indices.buffer]);}
       catch {done('mesh_prepare_failed');}
     });
   }
@@ -200,10 +210,11 @@ export class ComparisonView {
     const prepared={},valid={},failed=[];
     const canShowDifference=['ok','completed','ready','partial','empty'].includes(difference?.status);
     const entries={reference:meshes?.reference,candidate:meshes?.candidate,
-      ...(canShowDifference?Object.fromEntries(Object.keys(layerColors).map(key=>[key,difference.layers?.[key]])):{})};
+      ...(canShowDifference?Object.fromEntries(Object.keys(layerColors).map(key=>[key,difference.layers?.[key]])):{}),
+      ...(canShowDifference?Object.fromEntries(Object.keys(layerColors).map(key=>['surface_'+key,difference.surface_layers?.[key]])):{})};
     for(const [role,data] of Object.entries(entries)) {
       if(data==null)continue;
-      if(role in layerColors&&Array.isArray(data.vertices)&&Array.isArray(data.indices)&&!data.vertices.length&&!data.indices.length)continue;
+      if((role in layerColors||role.startsWith('surface_'))&&Array.isArray(data.vertices)&&Array.isArray(data.indices)&&!data.vertices.length&&!data.indices.length)continue;
       try {validateMesh(data);valid[role]=data;} catch {failed.push(role);}
     }
     // Use one origin for all ordinary models and Boolean partitions before
@@ -213,7 +224,7 @@ export class ComparisonView {
       try {
         const positions=Float32Array.from(data.vertices,(value,index)=>value-origin[index%3]);
         const indices=new Uint32Array(data.indices);
-        prepared[role]=await this.prepare(positions,indices);
+        prepared[role]=await this.prepare(positions,indices,role in layerColors||role.startsWith('surface_'));
         if(token!==this.meshToken)return {status:'cancelled'};
       } catch {
         if(token!==this.meshToken)return {status:'cancelled'};
@@ -221,7 +232,9 @@ export class ComparisonView {
       }
     }
     if(token!==this.meshToken)return {status:'cancelled'};
-    for(const [role,color] of [['reference',0x35baf2],['candidate',0xffa34c],...Object.entries(layerColors)]) {
+    if(failed.some(role=>role.startsWith('surface_')))
+      for(const role of Object.keys(prepared))if(role.startsWith('surface_'))delete prepared[role];
+    for(const [role,color] of [['reference',0x35baf2],['candidate',0xffa34c],...Object.entries(layerColors),...Object.entries(layerColors).map(([key,color])=>['surface_'+key,color])]) {
       const data=prepared[role];if(!data?.indices?.length)continue;
       const geometry=new THREE.BufferGeometry();
       geometry.setAttribute('position',new THREE.BufferAttribute(data.positions,3));geometry.setIndex(new THREE.BufferAttribute(data.indices,1));geometry.setAttribute('normal',new THREE.BufferAttribute(data.normals,3));
@@ -231,14 +244,17 @@ export class ComparisonView {
       const edgeGeometry=new THREE.BufferGeometry();edgeGeometry.setAttribute('position',new THREE.BufferAttribute(data.edges,3));
       const edges=new THREE.LineSegments(edgeGeometry,new THREE.LineBasicMaterial({color,transparent:true,opacity:.65}));
       const group=new THREE.Group();group.add(body,edges);
-      (role in layerColors?this.layers:this.models)[role]=group;this.scene.add(group);
+      (role.startsWith('surface_')?this.surfaceLayers:role in layerColors?this.layers:this.models)[role.replace(/^surface_/,'')]=group;this.scene.add(group);
     }
     const layerFailure=failed.some(role=>role in layerColors),layerCount=Object.keys(this.layers).length;
     let differenceStatus=difference?.status||'unavailable';
     if(canShowDifference)differenceStatus=layerFailure?(layerCount?'partial':'unavailable'):
       difference?.status==='partial'?'partial':layerCount?'ready':'empty';
     this.difference={status:differenceStatus,scope:difference?.scope==='interface'?'interface':'whole_model',
+      ...(difference?.visualization?{visualization:difference.visualization}:{}),surface_available:Object.keys(this.surfaceLayers).length>0,
       ...(difference?.reason?{reason:difference.reason}:{}),...(layerFailure?{reason:'difference_layer_prepare_failed'}:{})};
+    if(difference?.surface_layers&&!this.difference.surface_available)
+      this.difference.visualization={kind:'raw-volume',tolerance_mm:0,raw_available:true,description:'表面显示层不可用，展示未经容差过滤的原始体积差异。'};
     this.host.dataset.differenceState=differenceStatus;
     this.host.dataset.geometryState=Object.keys(this.models).length||layerCount?'ready':failed.length?'error':'unavailable';
     this.host.title=this.host.dataset.geometryState==='error'?'三维预览不可用':interactionHint;
@@ -247,31 +263,31 @@ export class ComparisonView {
       displayOrigin:this.displayOrigin,difference:this.difference};
   }
   display(role) {
-    for(const [key,group] of Object.entries(this.layers||{})) {
-      group.visible=role==='difference';
+    const surface=role==='difference'&&Object.keys(this.surfaceLayers||{}).length>0;
+    for(const [kind,collection] of [['raw',this.layers||{}],['surface',this.surfaceLayers||{}]])for(const [key,group] of Object.entries(collection)) {
+      group.visible=(role==='difference_raw'&&kind==='raw'||role==='difference'&&kind===(surface?'surface':'raw'))&&(this.differenceVisible?.[key]!==false);
       const [body,edges]=group.children;
-      if(!body.material.transparent){body.material.transparent=true;body.material.needsUpdate=true;}
-      body.material.opacity=key==='matched'?.3:.85;
-      body.material.depthWrite=false;body.renderOrder=key==='matched'?1:2;
-      edges.material.depthWrite=false;edges.material.opacity=key==='matched'?.35:.8;
-      edges.renderOrder=key==='matched'?3:4;
+      if(body.material.transparent){body.material.transparent=false;body.material.needsUpdate=true;}
+      body.material.opacity=1;body.material.depthWrite=true;body.material.depthTest=true;body.renderOrder=0;
+      body.material.polygonOffset=key==='matched';
+      body.material.polygonOffsetFactor=1;body.material.polygonOffsetUnits=1;
+      edges.visible=false;
     }
     for(const [key,group] of Object.entries(this.models)) {
-      const ghost=role==='difference'&&key==='candidate';
-      group.visible=this.visible[key] && (role==='overlay'||role===key||ghost);
+      group.visible=this.visible[key] && (role==='overlay'||role===key);
       const [body,edges]=group.children;
-      body.renderOrder=ghost||key==='reference'?0:1;
-      edges.renderOrder=ghost?0:key==='reference'?3:2;
-      const color=ghost?0x9ca3af:key==='reference'?0x35baf2:0xffa34c;
+      body.renderOrder=key==='reference'?0:1;
+      edges.renderOrder=key==='reference'?3:2;
+      const color=key==='reference'?0x35baf2:0xffa34c;
       body.material.color.set(color);body.material.emissive.set(color);
-      const transparent=role==='overlay'||ghost;
+      const transparent=role==='overlay';
       if(body.material.transparent!==transparent){body.material.transparent=transparent;body.material.needsUpdate=true;}
-      body.material.opacity=ghost?.12:transparent?this.opacity[key]:1;
+      body.material.opacity=transparent?this.opacity[key]:1;
       body.material.depthWrite=!transparent;
-      edges.material.depthTest=!(transparent&&key==='reference');
+      edges.material.depthTest=true;edges.visible=true;
       edges.material.depthWrite=!transparent;
-      edges.material.color.set(ghost?0x9ca3af:key==='reference'?0x7bddff:0xffc58b);
-      edges.material.opacity=ghost?.12:transparent?.72:.38;
+      edges.material.color.set(key==='reference'?0x7bddff:0xffc58b);
+      edges.material.opacity=transparent?.72*this.opacity[key]:.38;
     }
   }
   draw() {

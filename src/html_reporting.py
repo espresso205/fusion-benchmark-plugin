@@ -12,7 +12,7 @@ from urllib.parse import quote
 BASE = Path(__file__).resolve().parent.parent
 NAMES = {'shape': '形状符合度', 'dimension': '尺寸符合度', 'mass': '材料分布',
          'distance': '表面距离', 'face_match': '严格表面覆盖', 'section': '固定切面'}
-ANGLES = (('iso', 'ISO · 等轴'), ('front', 'Front · 前视'), ('top', 'Top · 俯视'), ('right', 'Right · 右视'))
+ANGLES = (('iso', '等轴 ISO'), ('front', '前视 Front'), ('top', '俯视 Top'), ('right', '右视 Right'))
 TASKS = {'generation': '生成', 'editing': '编辑', 'unknown': '未标注'}
 
 
@@ -170,6 +170,8 @@ def _image_link(url, caption, group, *, image_class=''):
 
 
 def _static_difference(view):
+    if any((images or {}).get('difference') for images in (view.get('previews') or {}).values()):
+        return True
     preview = (view.get('metadata') or {}).get('preview') or {}
     if preview.get('overlay_fallback') == 'ordinary_overlay' or preview.get('overlay_kind') == 'ordinary_overlay':
         return False
@@ -193,25 +195,103 @@ def _difference_legend(view, *, static=False):
         return '<p class="difference-note">差异图暂不可用；已有叠加图仅展示两侧模型的透明重叠。</p>'
     scope = _difference_label(view)
     explanation = '依据提供的 KOR / KIR 区域显示，不代表 Interface 评分。' if difference.get('scope') == 'interface' else '三角网格的整体材料差异，仅供目视检查，不是接口评价。'
+    visualization = difference.get('visualization') or {}
+    matched = '匹配'
+    if visualization.get('kind') == 'surface-distance-tolerance':
+        matched = '重合或容差内'
+        explanation = visualization.get('description') or f'显示容差 {visualization.get("tolerance_mm")} mm；仅用于网格显示，不改变评分。'
     partial = ' 部分差异层不可用。' if difference.get('status') == 'partial' else ''
-    return f'<div class="difference-legend"><span class="matched">匹配</span><span class="extra">多余</span><span class="missing">缺失</span></div><p class="difference-note">{scope} · {explanation}{partial}</p>'
+    return f'<div class="difference-legend"><span class="matched">{matched}</span><span class="extra">多余</span><span class="missing">缺失</span></div><p class="difference-note">{scope}。{esc(explanation)}{partial}</p>'
 
 
 def _multiview_html(row, frame):
     view = (row.get('display') or {}).get('views', {}).get(frame, {}) or {}
     previews = view.get('previews') or {}
     groups = []
-    for kind, title in (('split', '四视角对比'), ('overlay', _difference_label(view, static=True))):
+    for kind, title in (('split', '四视角对比'), ('overlay', '透明叠加'), ('difference', _difference_label(view))):
         tiles = []
         for angle, label in ANGLES:
             url = (previews.get(angle) or {}).get(kind)
+            # Older reports stored a difference image under the overlay key.
+            # Never relabel that image as ordinary transparency.
+            legacy_difference = _static_difference(view) and not any((p or {}).get('difference') for p in previews.values())
+            if legacy_difference and kind == 'overlay':
+                url = None
+            elif legacy_difference and kind == 'difference':
+                url = (previews.get(angle) or {}).get('overlay')
             if kind == 'split' and angle == 'iso' and not url:
                 url = view.get('thumbnail')
-            caption = f'{row.get("case")} · {label} · {"左侧生成模型，右侧标准答案" if kind == "split" else title}'
+            caption = f'{row.get("case")} {label} {"左侧生成模型，右侧标准答案" if kind == "split" else title}'
             tiles.append(f'<figure data-angle="{angle}">{_image_link(url, caption, kind)}<figcaption>{label}</figcaption></figure>')
-        note = _difference_legend(view, static=True) if kind == 'overlay' else '<p class="gallery-note">左侧生成模型，右侧标准答案 · 共用坐标、相机与尺度 · 点击放大</p>'
+        note = (_difference_legend(view, static=True) if kind == 'difference' else
+                '<p class="gallery-note">橙色为生成模型，蓝色为标准答案。透明度仅用于观察重合，不表示误差。</p>' if kind == 'overlay' else
+                '<p class="gallery-note">左侧生成模型，右侧标准答案。共用坐标、相机与尺度，点击后可缩放和拖动。</p>')
         groups.append(f'<section class="view-gallery" data-preview-kind="{kind}"><h3>{title}</h3>{note}<div class="view-grid">{"".join(tiles)}</div></section>')
     return '<div class="multiview-galleries">' + ''.join(groups) + '</div>'
+
+
+def _case_title(row):
+    return ' '.join(str(value) for value in (row.get('case'), row.get('enterprise_id'),
+                    row.get('enterprise_title') or row.get('title')) if value)
+
+
+def _notes_html(title, notes, *, folded=False):
+    entries = [f'<p>{esc(note)}</p>' for note in notes or [] if isinstance(note, str) and note.strip()]
+    if not entries:
+        return ''
+    if folded:
+        return f'<details class="evidence-notes"><summary>{esc(title)}</summary>{"".join(entries)}</details>'
+    return f'<section class="measurement-notes"><h4>{esc(title)}</h4>{"".join(entries)}</section>'
+
+
+def _case_verdict(row):
+    """Concise summary of existing measurements; never infer a new score."""
+    if row.get('report_conclusion'):
+        return esc(row['report_conclusion'])
+    if not row.get('participates_in_scoring'):
+        return '未获得正式评分。' + {'invalid': '生成模型未通过几何验证。',
+            'integrity': '评分证据未通过核验。', 'incomplete': '几何验证尚未完成。'}.get(case_state(row)[0], '本次运行没有形成可评分提交。')
+    values = [(k, (row.get('metrics', {}).get(k) or {}).get('measured_score')) for k in ('shape', 'dimension', 'mass')]
+    available = [(k, v) for k, v in values if is_number(v)]
+    if len(available) != 3:
+        return '部分主指标未测得，当前只能给出总分下界，不能判定整体通过。'
+    if all(v >= .99 for _, v in available):
+        return '三项主指标均达到 99 分，当前几何检查显示高度一致。'
+    lowest, value = min(available, key=lambda item: item[1])
+    checks = (row.get('metrics', {}).get('dimension', {}).get('raw') or {})
+    counts = f'尺寸检查通过 {checks["passed"]}/{checks["total"]} 项。' if is_number(checks.get('passed')) and is_number(checks.get('total')) else ''
+    return f'{counts}得分最低的主指标为{NAMES[lowest]}（{score(value)} 分），具体差异见下表。'
+
+
+def _dimension_findings(row):
+    """Report probe facts without turning BRep face counts into hole counts."""
+    raw = (row.get('metrics', {}).get('dimension', {}).get('raw') or {})
+    items = [item for item in raw.get('items', []) if isinstance(item, dict) and item.get('pass') is False]
+    if not items:
+        return ''
+    def number(value, unit, missing):
+        return f'{value:.4f}'.rstrip('0').rstrip('.') + ' ' + unit if is_number(value) else missing
+    rows = []
+    for item in items:
+        kind, ident = item.get('type'), str(item.get('id') or '')
+        label = '圆柱直径' if kind == 'cylinder_diameter' else '圆锥半角' if ident.startswith('cone-') else '平面间距' if ident.startswith('plane-span-') or kind == 'plane_pair' else '几何探针'
+        unit = '°' if label == '圆锥半角' else 'mm'
+        reason = {'feature_not_found': '未检出对应特征', 'outside_tolerance': '超出容差',
+                  'face_count_mismatch': '曲面数量不同'}.get(item.get('failure_type'), '检查未通过')
+        if item.get('failure_type') == 'face_count_mismatch':
+            delta = item.get('diameter_difference_mm')
+            if kind == 'cylinder_diameter' and is_number(delta) and abs(delta) < 1e-8:
+                reason = '直径相同，曲面数量不同'
+            elif kind == 'cylinder_diameter' and item.get('fallback_association'):
+                reason = '最近直径关联，直径与曲面数量均有差异'
+            elif label == '圆锥半角' and is_number(item.get('expected')) and is_number(item.get('measured')):
+                same_angle = abs(item['measured'] - item['expected']) < 1e-8
+                reason = '半角相同，曲面数量不同' if same_angle else '半角测量值不同，曲面数量不同'
+            if is_number(item.get('expected_count')) and is_number(item.get('count')):
+                reason += f'（标准 {item["expected_count"]}，生成 {item["count"]}）'
+        rows.append(f'<tr><th>{label}</th><td class="number">{number(item.get("expected"), unit, "未提供")}</td><td class="number">{number(item.get("measured"), unit, "未检出")}</td><td>{esc(reason)}</td></tr>')
+    return ('<section class="dimension-findings"><h3>未通过的尺寸检查</h3><p class="muted">来自标准模型的几何探针。曲面数量不能直接当作孔数；完整工程图公差未在此认证。</p>'
+            '<div class="table-scroll"><table class="scores"><thead><tr><th>检查项</th><th>标准值</th><th>生成值</th><th>结果</th></tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div></section>')
 
 
 def _download_html(downloads, *, batch=False):
@@ -380,17 +460,22 @@ def _case_detail(row, index, mode, total):
         range_text = f'<p class="notice">主分覆盖 {percent(row.get("measurement_weight_coverage"))}。总分下界 {score(interval[0])}，缺测项补全后可能为 {score(interval[0])}–{score(interval[1])} 分。该范围不是统计置信区间。</p>'
     initial_frame = default_frame(row)
     frames = f'<button data-frame="scoring" aria-pressed="{str(initial_frame == "scoring").lower()}">对齐后</button><button data-frame="world" aria-pressed="{str(initial_frame == "world").lower()}">原始坐标</button>'  if mode == 'geometry' else '<span>原始坐标计分</span>'
-    prompt = f'<section class="task-prompt"><h3>任务要求 <span class="task-badge">{TASKS[_task_type(row)]}</span></h3>{_prompt_html(row["prompt"])}</section>' if row.get('prompt') else ''
+    prompt = f'<details class="task-prompt"><summary>原始任务要求 <span class="task-badge">{TASKS[_task_type(row)]}</span></summary>{_prompt_html(row["prompt"])}</details>' if row.get('prompt') else ''
+    failure_notes = [reason.get('detail') for reason in row.get('reasons') or [] if isinstance(reason, dict) and reason.get('module') == 'pipeline' and reason.get('detail')]
     return f'''<section class="case-detail" id="case-{index}" data-index="{index}" aria-label="题目 {esc(row.get('case'))}"><span id="fixture={esc(row.get('case'))}" class="fixture-anchor"></span>
 <nav class="detail-nav"><a href="#overview">返回列表</a><div><button data-step="-1">上一题</button><span class="detail-position" aria-live="polite">{index + 1} / {total}</span><button data-step="1">下一题</button></div></nav>
-<div class="detail-heading"><h2>题目 {esc(row.get('case'))} <span class="state {state}">{label}</span></h2>{_score_html(row, detail=True)}</div>{_cad_html(row)}{range_text}{prompt}{_health_html(row)}{_download_html(row.get('downloads'))}
-<section class="visual-panel"><div class="viewer-toolbar"><div class="frame-tabs" role="group" aria-label="模型坐标">{frames}</div><div class="modes"><button data-mode="split" aria-pressed="true">并排</button><button data-mode="overlay" aria-pressed="false">透明叠加</button><button data-mode="difference" aria-pressed="false">差异着色</button><button data-mode="candidate" aria-pressed="false">生成模型</button><button data-mode="reference" aria-pressed="false">标准答案</button></div><div class="view-buttons"><button data-view="iso" aria-pressed="true">等轴</button><button data-view="front" aria-pressed="false">前视</button><button data-view="top" aria-pressed="false">俯视</button><button data-view="right" aria-pressed="false">右视</button><button data-reset>重置</button></div></div>
+<div class="detail-heading"><h2>{esc(_case_title(row))}</h2></div>
+<section class="visual-panel"><div class="viewer-toolbar"><div class="frame-tabs" role="group" aria-label="模型坐标">{frames}</div><div class="modes"><button data-mode="split" aria-pressed="true">并排</button><button data-mode="overlay" aria-pressed="false">透明叠加</button><button data-mode="difference" aria-pressed="false">差异着色</button><button data-mode="difference_raw" aria-pressed="false">精确体积差异</button><button data-mode="candidate" aria-pressed="false">生成模型</button><button data-mode="reference" aria-pressed="false">标准答案</button></div><div class="view-buttons"><button data-view="iso" aria-pressed="true">等轴</button><button data-view="front" aria-pressed="false">前视</button><button data-view="top" aria-pressed="false">俯视</button><button data-view="right" aria-pressed="false">右视</button><button data-reset>重置对比</button></div></div>
 <div class="comparison-labels"><span>生成模型</span><span>标准答案</span></div><div class="preview-host">{_preview(row, default_frame(row))}</div><div class="viewer-mount"></div>
 <div class="opacity-controls" hidden><label>生成模型透明度 <input data-opacity="candidate" type="range" min="0.05" max="1" step="0.05" value="0.65"></label><label>标准答案透明度 <input data-opacity="reference" type="range" min="0.05" max="1" step="0.05" value="0.35"></label></div>
-<div class="viewer-difference-legend" hidden>{_difference_legend((row.get('display') or {}).get('views', {}).get(initial_frame, {}) or {})}</div><div class="viewer-footer"><span class="view-state" aria-live="polite">ISO · 等轴</span><p class="viewer-status" role="status">静态预览，三维交互需启动本机服务。</p></div></section>
+<div class="viewer-difference-legend" hidden>{_difference_legend((row.get('display') or {}).get('views', {}).get(initial_frame, {}) or {})}</div><div class="viewer-footer"><span class="view-state" aria-live="polite">等轴 ISO</span><p class="viewer-status" role="status">静态预览，三维交互需启动本机服务。</p></div></section>
 {_multiview_html(row, initial_frame)}
+<section class="case-results"><div class="result-heading"><h3>测试结果 <span class="state {state}">{label}</span></h3>{_score_html(row, detail=True)}</div><p class="case-verdict">{_case_verdict(row)}</p>{range_text}
+{_notes_html('测量限制', row.get('measurement_notes'))}{_notes_html('停止原因详情', failure_notes, folded=True)}
+<div class="result-columns"><section class="metric-panel"><h3>指标分数</h3>{metric_table(row)}<details class="diagnostics"><summary>辅助指标（不计入总分）</summary>{metric_table(row, diagnostics=True)}</details></section><section class="case-analysis"><h3>结论依据</h3>{case_analysis(row, mode)}{_health_html(row)}</section></div>
+{_dimension_findings(row)}{_notes_html('几何核对详情', row.get('enterprise_geometry_notes'), folded=True)}{_cad_html(row)}{_download_html(row.get('downloads'))}</section>
 {input_materials_html(row.get('input_materials'))}
-<div class="result-columns"><section class="metric-panel"><h3>指标分数</h3>{metric_table(row)}<details class="diagnostics"><summary>辅助指标（不计入总分）</summary>{metric_table(row, diagnostics=True)}</details></section><section class="case-analysis"><h3>评测分析</h3>{case_analysis(row, mode)}</section></div>
+{prompt}{_notes_html('候选自述的假设与简化', row.get('candidate_notes'), folded=True)}
 </section>'''
 
 
@@ -433,10 +518,24 @@ def _cad_html(value, *, include_backend=False):
     return '<div class="health-line">' + ''.join(items) + '</div>' if items else ''
 
 
+def _batch_context(data):
+    stats = data.get('enterprise_summary') or {}
+    if not stats:
+        return _notes_html('运行说明', data.get('report_notes'), folded=True)
+    complete_mean = stats.get('complete_main_metrics_mean')
+    coverage = stats.get('full_batch_weighted_measurement_coverage')
+    text = (f'<p>三项主指标完整的 {esc(stats.get("complete_main_metrics_cases"))} 题均分 {score(complete_mean)}；'
+            f'全部 {esc(stats.get("selected_cases"))} 题的主指标实测权重覆盖 {percent(coverage)}。</p>')
+    notes = [f'正式尝试 {stats.get("formal_attempts")} 次，基础设施重跑 {stats.get("infrastructure_retries")} 次，按分数追加重试 {stats.get("score_based_retries")} 次。',
+             '模型服务身份仅有请求记录，使用受信任同账户运行。',
+             '本批只代表选定的十个企业单零件；尺寸探针由标准模型派生，不构成完整工程图尺寸或 GD&T 认证。']
+    return text + _notes_html('运行说明', notes + list(data.get('report_notes') or []), folded=True)
+
+
 def render_html(data):
     """Static results remain readable without JavaScript, HTTP or WebGL."""
     summary, cases, mode = data.get('summary', {}), data.get('cases', []), data.get('coordinate_mode', 'geometry')
-    stats = [('平均分', score(summary.get('batch_mean'))), ('参与评分', f'{summary.get("participating_case_count", 0)} / {len(cases)}'),
+    stats = [('已评分记录均分', score(summary.get('batch_mean'))), ('参与评分', f'{summary.get("participating_case_count", 0)} / {len(cases)}'),
              ('完整评分', summary.get('complete_case_count', 0)), ('缺测下界', summary.get('lower_bound_case_count', 0)),
              ('模型无效', summary.get('invalid_case_count', 0)), ('验证未完成', summary.get('validation_incomplete_case_count', 0))]
     if summary.get('pipeline_unscored_case_count'):
@@ -445,7 +544,7 @@ def render_html(data):
     cards = []
     for index, row in enumerate(cases):
         state, label = case_state(row)
-        cards.append(f'<a class="case-card" href="#fixture={quote(str(row.get("case", "")), safe="")}" data-index="{index}" data-state="{state}" data-task="{_task_type(row)}"><div class="card-preview"><div class="comparison-labels"><span>生成模型</span><span>标准答案</span></div>{_preview(row, default_frame(row))}</div><div class="card-body"><b>{esc(row.get("case"))}</b><span class="state {state}">{label}</span>{_score_html(row)}</div></a>')
+        cards.append(f'<a class="case-card" href="#fixture={quote(str(row.get("case", "")), safe="")}" data-index="{index}" data-state="{state}" data-task="{_task_type(row)}"><div class="card-preview"><div class="comparison-labels"><span>生成模型</span><span>标准答案</span></div>{_preview(row, default_frame(row))}</div><div class="card-body"><b>{esc(_case_title(row))}</b></div></a>')
     encoded = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(',', ':')).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026').replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
     weight_sets = {tuple((row.get('weights') or {}).get(k) for k in ('shape', 'dimension', 'mass')) for row in cases if row.get('participates_in_scoring')}
     weights_note = '各题采用的权重见单题指标表。'
@@ -454,12 +553,12 @@ def render_html(data):
     mode_note = '刚体对齐后比较几何，坐标差异单独查看' if mode == 'geometry' else '使用原始坐标比较几何'
     return f'''<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(data.get('run_name'))} - CAD 评测结果</title><link rel="stylesheet" href="assets/report.css"></head>
-<body><main><header class="report-header"><div class="report-heading"><h1>评测结果：{esc(data.get('run_name'))}</h1><p class="subtitle">{mode_note}</p></div>{_cad_html(data, include_backend=True)}<div class="summary-line">{stat_html}</div>{_download_html(data.get('downloads'), batch=True)}</header>
+<body data-report-template="comparison-first-v2"><main><header class="report-header"><div class="report-heading"><h1>{esc(str(data.get('run_name') or 'CAD 评测').replace(' · ', ' '))}</h1><p class="subtitle">{len(cases)} 个案例。左侧生成模型，右侧标准答案。</p></div></header>
 <nav class="page-nav"><a href="#overview">案例列表</a><a href="#analysis">评测分析</a></nav>
-<section id="overview" class="overview">{_task_summary(cases)}<div class="filters"><input aria-label="搜索题号或任务" id="case-search" type="search" placeholder="搜索题号或任务要求" autocomplete="off"><select aria-label="筛选任务类型" id="task-filter"><option value="all">全部任务</option><option value="generation">生成</option><option value="editing">编辑</option><option value="unknown">未标注</option></select><select aria-label="筛选状态" id="case-filter"><option value="all">全部状态</option><option value="measured">已评分</option><option value="lower_bound">缺测下界</option><option value="invalid">模型无效</option><option value="incomplete">验证未完成</option><option value="pipeline">未评分</option><option value="integrity">结果无法核验</option></select><select aria-label="排序" id="case-sort"><option value="case">按题号</option><option value="desc">分数从高到低</option><option value="asc">分数从低到高</option></select><span id="visible-count">{len(cases)} 个案例</span></div>
-<p class="list-note">点击查看模型对比与各项分数。均分仅统计参与评分的案例，包含缺测下界。</p>{_score_legend()}<div class="case-grid">{''.join(cards)}</div><p id="empty-filter" hidden>没有符合筛选的案例。</p></section>
+<section id="overview" class="overview"><div class="filters"><input aria-label="搜索题号或任务" id="case-search" type="search" placeholder="搜索题号、企业编号或名称" autocomplete="off"><select aria-label="筛选任务类型" id="task-filter"><option value="all">全部任务</option><option value="generation">生成</option><option value="editing">编辑</option><option value="unknown">未标注</option></select><select aria-label="筛选状态" id="case-filter"><option value="all">全部状态</option><option value="measured">已评分</option><option value="lower_bound">缺测下界</option><option value="invalid">模型无效</option><option value="incomplete">验证未完成</option><option value="pipeline">未评分</option><option value="integrity">结果无法核验</option></select><select aria-label="排序" id="case-sort"><option value="case">按题号</option><option value="desc">分数从高到低</option><option value="asc">分数从低到高</option></select><span id="visible-count">{len(cases)} 个案例</span></div>
+<div class="case-grid">{''.join(cards)}</div><p id="empty-filter" hidden>没有符合筛选的案例。</p></section>
 <div id="case-details">{''.join(_case_detail(row, i, mode, len(cases)) for i, row in enumerate(cases))}</div>
-<section id="analysis" class="appendix"><h2>评测分析</h2><h3>指标含义</h3><p>形状符合度衡量体积重合、表面接近程度与拓扑结构；尺寸符合度检查外形尺寸、直径和几何特征；材料分布检查体积与主惯性矩。{weights_note}</p><p>体积重合较高仍可能遗漏小孔或薄壁。尺寸检查未覆盖完整图纸公差，体积与惯性一致也不能唯一确定形状。几何对齐仅允许平移和旋转。</p><h3>指标消融</h3>{_analysis_html(data.get('analysis'))}</section>
+<section id="analysis" class="appendix"><h2>评测分析</h2><div class="summary-line">{stat_html}</div><p>均分只统计参与评分的记录，包含缺测下界；未评分题不按零分解释。</p>{_batch_context(data)}{_task_summary(cases)}{_cad_html(data, include_backend=True)}{_download_html(data.get('downloads'), batch=True)}{_score_legend()}<h3>指标含义</h3><p>{mode_note}。形状符合度衡量体积重合、表面接近程度与拓扑结构；尺寸符合度检查外形尺寸、直径和几何特征；材料分布检查体积与主惯性矩。{weights_note}</p><p>体积重合较高仍可能遗漏小孔或薄壁。尺寸检查未覆盖完整图纸公差，体积与惯性一致也不能唯一确定形状。几何对齐仅允许平移和旋转。</p><details><summary>指标消融</summary>{_analysis_html(data.get('analysis'))}</details></section>
 </main><dialog id="image-lightbox" class="image-lightbox" aria-label="图片放大"><div class="lightbox-toolbar"><p class="lightbox-caption" aria-live="polite"></p><button data-lightbox-close aria-label="关闭放大图片">关闭 ×</button></div><img class="lightbox-image" alt=""><div class="lightbox-controls"><button data-lightbox-step="-1" aria-label="上一张图片">← 上一张</button><span class="lightbox-count" aria-live="polite"></span><button data-lightbox-step="1" aria-label="下一张图片">下一张 →</button></div></dialog><script id="report-data" type="application/json">{encoded}</script><script src="assets/report.js" defer></script></body></html>'''
 
 

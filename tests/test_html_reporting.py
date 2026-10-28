@@ -99,7 +99,8 @@ class HtmlTests(unittest.TestCase):
         before = copy.deepcopy(data)
         page = Page(render_html(data))
         badges = [attrs for tag, attrs in page.tags if tag == 'strong' and 'data-score-band' in attrs]
-        self.assertEqual(len(badges), len(variants) * 2)
+        # Results occur once, below comparisons; cards contain identity only.
+        self.assertEqual(len(badges), len(variants))
         self.assertEqual([badge['data-score-band'] for badge in badges[:len(variants)]], [band for _, _, band in variants])
         text = ' '.join(page.text)
         for label in ('≥ 90', '60–<90', '< 60', '仅为展示区间', '缺测下界与无分数不分档'):

@@ -9,6 +9,128 @@ VOLUME_RELATIVE_TOLERANCE = 1e-6
 VOLUME_ABSOLUTE_TOLERANCE_MM3 = 1e-6
 
 
+def surface_layers(meshes, partitions, *, tolerance_mm):
+    """Color local surface differences at the display mesh precision.
+
+    Raw closed Boolean partitions are never changed. The union's exterior
+    triangles are split by an interpolated distance field. No component/volume threshold is
+    used: a small but spatially distinct defect remains visible. These open
+    display surfaces must never be used as volume or scoring evidence.
+    """
+    import numpy as np
+    from vtkmodules.vtkCommonCore import vtkPoints
+    from vtkmodules.vtkCommonDataModel import vtkPolyData, vtkCellArray
+    from vtkmodules.vtkFiltersCore import vtkImplicitPolyDataDistance
+    from vtkmodules.util.numpy_support import numpy_to_vtk, numpy_to_vtkIdTypeArray
+    tolerance_mm = float(tolerance_mm)
+    if not math.isfinite(tolerance_mm) or tolerance_mm < 0:
+        raise ValueError('invalid_display_tolerance')
+    origin = np.asarray(meshes['reference']['vertices'], dtype=float).reshape(-1, 3).mean(axis=0)
+    distances, retained = [], []
+    for role in ('reference', 'candidate'):
+        mesh = meshes[role]
+        points = vtkPoints()
+        points.SetData(numpy_to_vtk(np.asarray(mesh['vertices']).reshape(-1, 3)-origin, deep=True))
+        indices = np.asarray(mesh['indices'], dtype=np.int64)
+        cells = vtkCellArray()
+        cells.SetData(numpy_to_vtkIdTypeArray(np.arange(0, len(indices)+1, 3, dtype=np.int64), deep=True),
+                      numpy_to_vtkIdTypeArray(indices, deep=True))
+        poly = vtkPolyData(); poly.SetPoints(points); poly.SetPolys(cells)
+        distance = vtkImplicitPolyDataDistance(); distance.SetInput(poly)
+        distances.append(distance); retained.append(poly)
+    output = {key: {'vertices': [], 'indices': []} for key in ('matched', 'extra', 'missing')}
+    maps = {key: {} for key in output}
+
+    def append(role, polygon):
+        if len(polygon) < 3:
+            return
+        mesh, lookup = output[role], maps[role]
+        indices = []
+        for point, _ in polygon:
+            key = tuple(round(float(value), 12) for value in point)
+            if key not in lookup:
+                lookup[key] = len(mesh['vertices'])//3
+                # Six decimal millimeters are far below the displayed mesh
+                # precision; compact transport only, never change raw evidence.
+                mesh['vertices'].extend(np.round(point+origin, 6).tolist())
+            indices.append(lookup[key])
+        for i in range(1, len(indices)-1):
+            if len({indices[0], indices[i], indices[i+1]}) == 3:
+                mesh['indices'].extend((indices[0], indices[i], indices[i+1]))
+
+    def clip(polygon, positive):
+        result = []
+        for previous, current in zip(polygon[-1:]+polygon[:-1], polygon):
+            p, pv = previous; q, qv = current
+            pin, qin = (pv > 0) == positive, (qv > 0) == positive
+            if pin != qin:
+                fraction = pv/(pv-qv)
+                result.append((p+(q-p)*fraction, 0.0))
+            if qin:
+                result.append(current)
+        return result
+
+    sample_cache = {}
+    def value(point):
+        key = tuple(round(float(v), 12) for v in point)
+        if key not in sample_cache:
+            sample_cache[key] = max(abs(distance.EvaluateFunction(point)) for distance in distances)-tolerance_mm
+        return sample_cache[key]
+
+    def classify(role, triangle, depth=0):
+        values = [value(point) for point in triangle]
+        midpoints = [(triangle[i]+triangle[(i+1)%3])/2 for i in range(3)]
+        middle_values = [value(point) for point in midpoints]
+        center = sum(triangle)/3
+        center_value = value(center)
+        sampled = values+middle_values+[center_value]
+        if all(v > 0 for v in sampled):
+            append(role, list(zip(triangle, values))); return
+        if all(v <= 0 for v in sampled):
+            append('matched', list(zip(triangle, values))); return
+        error = max([abs(middle_values[i]-(values[i]+values[(i+1)%3])/2) for i in range(3)] +
+                    [abs(center_value-sum(values)/3)])
+        if depth < 3 and error > max(tolerance_mm*.2, 1e-5):
+            a,b,c = triangle; ab,bc,ca = midpoints
+            for child in ((a,ab,ca),(ab,b,bc),(ca,bc,c),(ab,bc,ca)):
+                classify(role, child, depth+1)
+            return
+        # The interpolated boundary is now close to the sampled distance field;
+        # center samples retain small interior features missed by corners alone.
+        for i in range(3):
+            polygon = [(triangle[i], values[i]), (triangle[(i+1)%3], values[(i+1)%3]), (center, center_value)]
+            append(role, clip(polygon, True)); append('matched', clip(polygon, False))
+
+    for role, mesh in partitions.items():
+        if not mesh:
+            continue
+        points = np.asarray(mesh['vertices']).reshape(-1, 3)-origin
+        triangles = np.asarray(mesh['indices']).reshape(-1, 3)
+        # The Boolean solids share internal faces. Keep only the exterior of
+        # their union in the surface view; rendering those coincident cut faces
+        # would produce depth stripes even with fully opaque materials. The raw
+        # mode retains enclosed/internal defects for independent inspection.
+        epsilon = max(1e-7, float(np.ptp(points, axis=0).max())*1e-10)
+        exterior = []
+        for triangle in triangles:
+            center = points[triangle].mean(axis=0)
+            signed = [distance.EvaluateFunction(center) for distance in distances]
+            if min(signed) >= -epsilon:
+                exterior.append(triangle)
+        if role == 'matched':
+            for triangle in exterior:
+                append('matched', [(points[index], 0.0) for index in triangle])
+            continue
+        # Each Boolean boundary belongs to one input surface. Distance to the
+        # other input measures its local separation. Enclosed differences remain
+        # in the unmodified raw partitions, accessible through layer isolation.
+        for triangle in exterior:
+            classify(role, tuple(points[index] for index in triangle))
+    return {key: ({**mesh, 'units': 'mm', 'approximation': 'display-surface-distance',
+                   'display_tolerance_mm': tolerance_mm} if mesh['indices'] else None)
+            for key, mesh in output.items()}
+
+
 def unavailable(scope='whole_model', reason='difference_unavailable'):
     return {'status': 'unavailable', 'scope': scope,
             'layers': dict.fromkeys(('matched', 'extra', 'missing')), 'reason': reason}

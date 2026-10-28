@@ -22,16 +22,22 @@ class ServerTests(unittest.TestCase):
             server=make_server(root,port=0)
             thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
             base='http://127.0.0.1:'+str(server.server_port)
+            # This boundary is deliberately HTTP-only. Do not initialize an
+            # unrelated system HTTPS trust store while testing local requests.
+            opener = urllib.request.OpenerDirector()
+            for handler in (urllib.request.HTTPHandler(), urllib.request.HTTPDefaultErrorHandler(),
+                            urllib.request.HTTPErrorProcessor()):
+                opener.add_handler(handler)
             try:
-                with urllib.request.urlopen(base+'/index.html') as response:
+                with opener.open(base+'/index.html') as response:
                     self.assertIn('text/html',response.headers['Content-Type'])
                     self.assertEqual(response.read().decode('utf-8'),'中文报告')
                     self.assertIn("object-src 'none'",response.headers['Content-Security-Policy'])
                 request = urllib.request.Request(base + '/index.html', headers={'Host': 'attacker.example:' + str(server.server_port)})
-                with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(request)
+                with self.assertRaises(urllib.error.HTTPError) as error: opener.open(request)
                 self.assertEqual(error.exception.code, 403)
                 for url in ('/unlisted.json','/../secret.json','/%2e%2e/secret.json','/folder/', '/report-manifest.json/..'):
-                    with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(base+url)
+                    with self.assertRaises(urllib.error.HTTPError) as error: opener.open(base+url)
                     self.assertIn(error.exception.code,(403,404))
             finally:
                 server.shutdown(); server.server_close(); thread.join(timeout=3)

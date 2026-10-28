@@ -22,6 +22,41 @@ def volume(mesh):
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_surface_tolerance_is_local_and_preserves_raw_partitions(self):
+        from src.display_comparison import compare_meshes, surface_layers
+        import copy
+        meshes = {'candidate': box(.002, 2.002), 'reference': box(0, 2)}
+        raw = compare_meshes(meshes); frozen = copy.deepcopy(raw)
+        surface = surface_layers(meshes, raw['layers'], tolerance_mm=.02)
+        self.assertIsNone(surface['extra'])
+        self.assertIsNone(surface['missing'])
+        self.assertIsNotNone(surface['matched'])
+        self.assertEqual(raw, frozen, 'display filtering must preserve exact raw evidence')
+        meshes = {'candidate': box(.2, 2.2), 'reference': box(0, 2)}
+        raw = compare_meshes(meshes)
+        surface = surface_layers(meshes, raw['layers'], tolerance_mm=.02)
+        self.assertIsNotNone(surface['extra'])
+        self.assertIsNotNone(surface['missing'])
+
+    def test_surface_mode_is_exterior_only_and_raw_retains_enclosed_cavity(self):
+        import manifold3d as m
+        import numpy as np
+        from src.display_comparison import compare_meshes, surface_layers
+        outer = m.Manifold.cube([6, 6, 6])
+        inner = m.Manifold.cube([2, 2, 2]).translate([2, 2, 2])
+        def mesh(solid):
+            value = solid.to_mesh64()
+            return {'vertices': np.asarray(value.vert_properties)[:, :3].ravel().tolist(),
+                    'indices': np.asarray(value.tri_verts).ravel().tolist()}
+        meshes = {'candidate': mesh(outer-inner), 'reference': mesh(outer)}
+        raw = compare_meshes(meshes)
+        self.assertAlmostEqual(volume(raw['layers']['missing']), 8)
+        surface = surface_layers(meshes, raw['layers'], tolerance_mm=.02)
+        self.assertIsNone(surface['extra'])
+        self.assertIsNone(surface['missing'])
+        self.assertIsNotNone(surface['matched'])
+        self.assertAlmostEqual(volume(raw['layers']['missing']), 8)
+
     def api(self):
         self.assertIsNotNone(importlib.util.find_spec('src.display_comparison'),
                              'solid display comparison must exist')

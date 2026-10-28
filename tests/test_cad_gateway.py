@@ -184,15 +184,16 @@ class CadGatewayTests(unittest.TestCase):
             self.call("get_document_info")
         self.assertEqual(self.native.calls, [])
 
-    def test_instance_drift_preserves_pending_and_prevents_replay_after_restart(self):
+    def test_instance_drift_before_dispatch_blocks_after_restart_without_inventing_pending(self):
         self.call("list_open_documents")
         self.native.identity["pid"] = 101
-        with self.assertRaisesRegex(RuntimeError, "cad_task_unknown"):
+        with self.assertRaisesRegex(RuntimeError, "cad_workspace_unconfirmed"):
             self.call("list_open_documents")
-        with self.assertRaisesRegex(RuntimeError, "cad_task_unknown"):
+        with self.assertRaisesRegex(RuntimeError, "cad_workspace_unconfirmed"):
             self.call("list_open_documents")
         state = json.loads((self.audit / "gateway-state.json").read_text(encoding="utf-8"))
-        self.assertEqual(state["pending_cad"], 1)
+        self.assertEqual(state["pending_cad"], 0)
+        self.assertTrue(state["cad_workspace_unconfirmed"])
         self.assertEqual(len(self.native.calls), 1)
 
     def test_nested_business_unknown_is_durable_and_audited_with_full_identity(self):

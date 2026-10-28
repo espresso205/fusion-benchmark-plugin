@@ -469,6 +469,9 @@ class WorkerGateway:
         return ("unsaved", title)
 
     def _probe(self, state, *, check_owned=True, phase="before_call"):
+        from .stdio_mcp import CadCallUnknown
+        if state.get("cad_probe_unknown"):
+            raise GatewayError("cad_task_unknown" if state["pending_cad"] else "cad_workspace_unconfirmed")
         state["maintenance_probe_calls"] += 1
         try:
             probe = self._upstream().probe_workspace()
@@ -487,13 +490,22 @@ class WorkerGateway:
                                                 for document in documents):
                 raise ValueError("ambiguous documents")
         except Exception as error:
-            state["pending_cad"] = 1
+            # A failed pre-call inspection has not dispatched the requested
+            # operation. Preserve any existing pending call, but do not invent
+            # one. A subsequent request must pass a fresh ownership/idle probe.
+            state["cad_workspace_unconfirmed"] = True
+            # An unconfirmed maintenance request must also survive a gateway
+            # restart; only completed inspections may be repeated automatically.
+            if isinstance(error, CadCallUnknown):
+                state["cad_probe_unknown"] = True
             self._save(state, {"type": "cad_probe_failed", "phase": phase,
+                               "native_dispatched": bool(state["pending_cad"]),
                                "error_type": type(error).__name__, "error_message": str(error)[:1024]})
-            raise GatewayError("cad_task_unknown") from None
+            raise GatewayError("cad_task_unknown" if state["pending_cad"] else "cad_workspace_unconfirmed") from None
         owned = {self._document_key(document) for document in state["owned_documents"]}
         if check_owned and set(keys) != owned:
             raise GatewayError("cad_document_not_owned")
+        state["cad_workspace_unconfirmed"] = False
         return probe
 
     def _check_plan_source(self, plan):

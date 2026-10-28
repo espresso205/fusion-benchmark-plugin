@@ -184,10 +184,10 @@
       "previous_sha256": "026db803cddd645f5905510fc500127f5c1211c1f3fc05e99067c2e63b60357e"
     },
     "fusion_pipeline/runner.py": {
-      "bytes": 98860,
-      "sha256": "7e954a29c6e724cd73050316c69805fada4dc6b663f5acba4d90469ba8b9f6f4",
-      "source": "2026-10-27 reviewed UTF-8 child process fix: explicit UTF-8 scheduler/evaluator output; preserve inherited runtime settings and portable isolated runtime support; scoring algorithms and weights unchanged",
-      "previous_sha256": "83e4d22e1d673a489f61b81c0390363009a0842f4db00e03163ce8edb108cf82"
+      "bytes": 100360,
+      "sha256": "26963ea81cba1d0546e1e327d630a029cc86835c3ad0150c9fb76d3deadd5643",
+      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
+      "previous_sha256": "7e954a29c6e724cd73050316c69805fada4dc6b663f5acba4d90469ba8b9f6f4"
     },
     "fusion_pipeline/service.py": {
       "bytes": 17191,
@@ -201,9 +201,10 @@
       "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
     },
     "report_assets/VIEWER_SOURCES.json": {
-      "bytes": 3581,
-      "sha256": "5c8b14a380e22c2ac774a3dd5f53fe02c317726b47c6644afc18d4e39f2de09f",
-      "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
+      "bytes": 4413,
+      "sha256": "157707a01a3ee7fe966238517926f5929edae93fb19f4352967a22be7e6a86ca",
+      "source": "2026-10-28 reviewed display-source provenance update; upstream source identities preserved; scoring unchanged",
+      "previous_sha256": "5c8b14a380e22c2ac774a3dd5f53fe02c317726b47c6644afc18d4e39f2de09f"
     },
     "report_assets/licenses/CADViewer-MIT.txt": {
       "bytes": 1089,
@@ -216,15 +217,16 @@
       "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
     },
     "report_assets/report.css": {
-      "bytes": 23392,
-      "sha256": "d0585f2b16e1b51c82104533cc2a010f3372f91e45b4d4bfd8aba0464522658b",
-      "source": "2026-10-28: simplify visible report metadata and format task prose; scoring and embedded evidence unchanged",
-      "previous_sha256": "162817788a4e1da885f5d7366e9a66dfd32da2a2a6f3cc60ac2c9506bfd6d5b8"
+      "bytes": 26251,
+      "sha256": "bf4bcce47997482f9f83a1191ee1cf8984b6430fa064561fda76e7266bb702bf",
+      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
+      "previous_sha256": "d0585f2b16e1b51c82104533cc2a010f3372f91e45b4d4bfd8aba0464522658b"
     },
     "report_assets/report.js": {
-      "bytes": 21407,
-      "sha256": "daec50b97e0babf01288443f8a891d19f8da2873a886082ca61362844204351c",
-      "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
+      "bytes": 32769,
+      "sha256": "b7f27ddbcec286288993e4214614188ae12edfa0870d1e9ca7471de980f58f17",
+      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
+      "previous_sha256": "daec50b97e0babf01288443f8a891d19f8da2873a886082ca61362844204351c"
     },
     "report_assets/vendor/three.module.js": {
       "bytes": 1272972,
@@ -232,9 +234,10 @@
       "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
     },
     "report_assets/viewer/comparison-view.js": {
-      "bytes": 16923,
-      "sha256": "368a6df6d7406207dc99af505b39ccea4c0160cbed1ac065f4a54994b89ddc9d",
-      "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
+      "bytes": 18712,
+      "sha256": "1dd2fe263cecbaf9db2a732614ce793385ddeb8314b7d19e5571d841a3c2af54",
+      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
+      "previous_sha256": "368a6df6d7406207dc99af505b39ccea4c0160cbed1ac065f4a54994b89ddc9d"
     },
     "report_assets/viewer/mesh-validation.js": {
       "bytes": 1207,
@@ -242,9 +245,10 @@
       "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
     },
     "report_assets/viewer/preview-geometry-worker.js": {
-      "bytes": 1232,
-      "sha256": "daa17336f263b03cf57d895d562ff0d9255e9f8c11abd70f32848090bad35e06",
-      "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
+      "bytes": 1272,
+      "sha256": "7f6e28bd1e4ccd60476a8f85e866247ccddf0211b0a1f1f706d94c676a092755",
+      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
+      "previous_sha256": "daa17336f263b03cf57d895d562ff0d9255e9f8c11abd70f32848090bad35e06"
     },
     "serve_report.py": {
       "bytes": 3956,
@@ -252,9 +256,10 @@
       "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
     },
     "src/display_assets.py": {
-      "bytes": 23976,
-      "sha256": "ab5f0e1a1e60a818aa6dbfc49fd79d7732a11883db253fc5a294672e0a771919",
-      "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
+      "bytes": 24568,
+      "sha256": "de9811671c898ac4828a6e66b5e93ecfb6601f7e1351ecd41d08cd91eec1c359",
+      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
+      "previous_sha256": "ab5f0e1a1e60a818aa6dbfc49fd79d7732a11883db253fc5a294672e0a771919"
     },
     "src/display_mesh.py": {
       "bytes": 5484,
@@ -262,15 +267,16 @@
       "source": "HTML presentation and integration, 2026-10-26; scoring formulas and weights unchanged"
     },
     "src/display_worker.py": {
-      "bytes": 11745,
-      "sha256": "5763a5f66257d37a89ba03c72ac65ffcd701bcb454703fa9ada4bc7ad663a594",
-      "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
+      "bytes": 13494,
+      "sha256": "81c27a2c3b9da70046283c6797f01b9ca32e519d051a893ff50985b6e1d3a1f9",
+      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
+      "previous_sha256": "5763a5f66257d37a89ba03c72ac65ffcd701bcb454703fa9ada4bc7ad663a594"
     },
     "src/html_reporting.py": {
-      "bytes": 39222,
-      "sha256": "c9d629e966a54ca1c3a93983af2c0c8a9c060dab2c43df036dfe501caa9e5857",
-      "source": "2026-10-28: simplify visible report metadata and format task prose; scoring and embedded evidence unchanged",
-      "previous_sha256": "f5401c00c4c0cb8d6ee6fdb20c4fcc7499f1a8f5d69ba4b3709f34cf4fa49106"
+      "bytes": 46927,
+      "sha256": "db4a0c89f794ff686dbf13946f288c6b1f5866702f255ac34bce8ff5f6677be9",
+      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
+      "previous_sha256": "c9d629e966a54ca1c3a93983af2c0c8a9c060dab2c43df036dfe501caa9e5857"
     },
     "src/report_data.py": {
       "bytes": 35308,
@@ -284,9 +290,10 @@
       "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
     },
     "src/display_comparison.py": {
-      "bytes": 6362,
-      "sha256": "740e926c9bb2384531ed2f71bf6325a26b459297ce72203b9452780563eb907b",
-      "source": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged"
+      "bytes": 12684,
+      "sha256": "3f8ad9188372d8f2c31604d19dd5ea4fddf4598f04ae13218e2ed5d70a438bea",
+      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
+      "previous_sha256": "740e926c9bb2384531ed2f71bf6325a26b459297ce72203b9452780563eb907b"
     },
     "src/report_interfaces.py": {
       "bytes": 4182,
@@ -346,10 +353,10 @@
       "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
     },
     "fusion_pipeline/solidworks.py": {
-      "bytes": 29774,
-      "sha256": "8e585735c0beadb43959be1681c0d84d0c5758d3311b3be70e9500d27710feae",
-      "source": "2026-10-28 reviewed completed health-workflow classification: accept geometry mismatch only after all nine native checks and rebuild complete with bound runtime and vendor identity; preserve unknown-outcome blocking and audit evidence; scoring algorithms and weights unchanged",
-      "previous_sha256": "81716d68e7eb825b44812540895e1b39a4a0283be7214bfa68a6ad074aa7e648"
+      "bytes": 30579,
+      "sha256": "ce895a666e561cfea2114e5398778b1d94e52f3a40afc4ea5a7e6622fa7fb100",
+      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
+      "previous_sha256": "8e585735c0beadb43959be1681c0d84d0c5758d3311b3be70e9500d27710feae"
     },
     "fusion_pipeline/solidworks_helper.py": {
       "bytes": 41254,
@@ -363,10 +370,10 @@
       "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
     },
     "fusion_pipeline/worker_gateway.py": {
-      "bytes": 54414,
-      "sha256": "b15b5aba13abe99663ff7135e4713bbb8578a093e9ab0ecc914b0618d9ea1332",
-      "source": "2026-10-28 reviewed CAD cleanup and deadline accounting: distinguish reused process identities and reserve reconciliation time; preserve unknown-outcome blocking and audit evidence; scoring algorithms and weights unchanged",
-      "previous_sha256": "151ac2597b225c9c0ee2ef881a04be957264fd16d9522cb05f188234d22f3217"
+      "bytes": 55309,
+      "sha256": "a5bfa125bae818e2dd87cf38d579ce13a34c1904fa8b004b2ec1f6ef8fa5c216",
+      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
+      "previous_sha256": "b15b5aba13abe99663ff7135e4713bbb8578a093e9ab0ecc914b0618d9ea1332"
     },
     "fusion_pipeline/mcp.py": {
       "bytes": 6121,
