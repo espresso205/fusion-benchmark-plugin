@@ -22,6 +22,7 @@ import zipfile
 
 from src.io_utils import sha, strict_json
 from .mcp import FusionMCP, extract_result, resolved_config
+from .candidate_runtime import negative_control
 
 BASE = Path(__file__).resolve().parents[1]
 MODEL = "lanyi/gpt-6.1-sol"
@@ -48,7 +49,7 @@ def validate_run_configuration(config):
     if protocol not in ('fusion-step-adapted-v2.0', 'fusion-step-adapted-v3.0', 'fusion-step-adapted-v4.0') or mode not in ('geometry', 'strict') or (protocol != 'fusion-step-adapted-v4.0' and mode != 'strict'):
         raise ValueError('unsupported scoring protocol or coordinate mode')
     capability = cad_capabilities(config)
-    if backend == 'solidworks' and not capability.get('dependency_discovered'):
+    if backend == 'solidworks' and not negative_control(config) and not capability.get('dependency_discovered'):
         raise ValueError('SolidWorks runtime dependencies are missing')
     if backend == 'fusion' and normalized['cad_config'].get('url'):
         endpoint = urllib.parse.urlparse(normalized['cad_config']['url'])
@@ -181,6 +182,8 @@ def snapshot_evaluator(source, destination):
              if (source / name).is_file()}
     for name in ("report_assets/report.css", "report_assets/report.js", "report_assets/VIEWER_SOURCES.json",
                   "fusion_pipeline/__init__.py", "fusion_pipeline/input_assets.py", "fusion_pipeline/native_contract.py",
+                  "fusion_pipeline/candidate_config.py", "fusion_pipeline/candidate_profiles.py", "fusion_pipeline/capabilities.py",
+                  "fusion_pipeline/reasoning.py", "fusion_pipeline/adapters.py",
                  "report_assets/viewer/comparison-view.js", "report_assets/viewer/mesh-validation.js",
                  "report_assets/viewer/preview-geometry-worker.js", "report_assets/vendor/three.module.js",
                  "report_assets/licenses/CADViewer-MIT.txt", "report_assets/licenses/Three-MIT.txt"):
@@ -253,7 +256,9 @@ def source_hashes():
             for folder in (BASE / "fusion_pipeline", BASE / "plugins")
             for p in folder.rglob("*") if p.is_file() and p.suffix in {".py", ".mjs"}
             and "__pycache__" not in p.parts}
-    for name in ("src/__init__.py", "src/io_utils.py", "agent/fusion-modeling/SKILL.md", "agent/solidworks-modeling/SKILL.md"):
+    for name in ("src/__init__.py", "src/io_utils.py", "agent/fusion-modeling/SKILL.md", "agent/solidworks-modeling/SKILL.md",
+                 "agent/common-protocol/PROTOCOL.md", "agent/common-protocol/FUSION.md", "agent/common-protocol/SOLIDWORKS.md",
+                 "agent/fusion-guidance/SKILL.md", "agent/solidworks-guidance/SKILL.md"):
         if (BASE / name).is_file():
             inventory[name] = sha(BASE / name)
     return inventory
@@ -392,7 +397,18 @@ def stop_tree(process):
 class Trial:
     def __init__(self, config_path, *, cad_backend=None):
         self.config_path = Path(config_path).resolve()
-        self.config = strict_json(self.config_path)
+        self.raw_config = strict_json(self.config_path)
+        self.study_plan = None
+        study = self.raw_config.get('capability_study')
+        if study is not None:
+            from .capability_study import validate_plan_execution
+            if not isinstance(study, dict) or not isinstance(study.get('cell_id'), str):
+                raise ValueError('study_cell_unknown')
+            self.study_plan = self.config_path.parent.parent / 'experiment-plan.json'
+            validate_plan_execution(self.study_plan, study['cell_id'], self.raw_config, require_verified=True)
+        from .candidate_config import resolve_candidate_configuration
+        self.config = resolve_candidate_configuration(self.raw_config,
+            {'cad_backend': cad_backend} if cad_backend is not None else None, require_reasoning_verified=True)
         if cad_backend is not None:
             self.config['cad_backend'] = cad_backend
         normalized, capability = validate_run_configuration(self.config)
@@ -403,12 +419,18 @@ class Trial:
         self.unified_gateway = self.config.get("execution_backend") == "unified_gateway"
         if self.unified_gateway:
             self.config.setdefault('protocol', 'fusion-step-adapted-v4.0')
-        self.config.setdefault('cad_skill', self.config.get('modeling_skill') or (self.config.get('fusion_skill') if self.cad_backend == 'fusion' else str(BASE / 'agent/solidworks-modeling/SKILL.md')))
-        if not self.config.get('cad_skill'):
-            self.config['cad_skill'] = str(BASE / 'agent/fusion-modeling/SKILL.md')
-        if self.cad_backend == 'fusion':
-            self.config.setdefault('fusion_skill', self.config['cad_skill'])
-        fields = ["python", "questions_root", "private_cases", "runs_root", "private_runs_root", "cad_skill"]
+        self.explicit_capabilities = 'candidate_capabilities' in self.config
+        if self.explicit_capabilities and not self.unified_gateway:
+            raise ValueError('explicit_capabilities_require_unified_gateway')
+        if not self.explicit_capabilities:
+            self.config.setdefault('cad_skill', self.config.get('modeling_skill') or (self.config.get('fusion_skill') if self.cad_backend == 'fusion' else str(BASE / 'agent/solidworks-modeling/SKILL.md')))
+            if not self.config.get('cad_skill'):
+                self.config['cad_skill'] = str(BASE / 'agent/fusion-modeling/SKILL.md')
+            if self.cad_backend == 'fusion':
+                self.config.setdefault('fusion_skill', self.config['cad_skill'])
+        fields = ["python", "questions_root", "private_cases", "runs_root", "private_runs_root"]
+        if not self.explicit_capabilities:
+            fields.append('cad_skill')
         fields += [field for field in ("evaluator_zip", "evaluator_directory", "opencode", "cli_executable") if field in self.config]
         for field in fields:
             if not Path(self.config[field]).is_absolute():
@@ -421,7 +443,7 @@ class Trial:
         if (not isinstance(cases, list) or not cases or any(not isinstance(c, str) or not re.fullmatch(r"Q\d{2}", c) for c in cases)
                 or len(set(cases)) != len(cases)):
             raise ValueError("case_ids must contain unique Qxx identifiers")
-        if self.cad_backend != 'fusion':
+        if self.cad_backend != 'fusion' or negative_control(self.config):
             self.cli_config = {'mcp': {}}
         elif self.config['cad_config'].get('url'):
             self.cli_config = {'mcp': {'autodeskfusion': self.config['cad_config']}}
@@ -443,12 +465,20 @@ class Trial:
                       "runner_code_sha256": source_hashes(),
                       "cad_backend": self.cad_backend, "cad_config_sha256": self.cad_config_sha256,
                       "cad_capabilities": capability,
+                      "candidate_selection": self.config['candidate_selection'],
                       "cases": [{"case_id": case, "state": "not_started"} for case in cases]}
         if self.unified_gateway:
             for row in self.state['cases']:
                 row.update(run_id=self.run.name, attempt_id='attempt-' + uuid.uuid4().hex,
                            protocol_id=self.config.get('protocol', 'fusion-step-adapted-v4.0'),
                            cad_backend=self.cad_backend, cad_config_sha256=self.cad_config_sha256)
+                row['candidate_selection'] = dict(self.config['candidate_selection'])
+                if negative_control(self.config):
+                    row['negative_control_no_cad'] = True
+                if self.study_plan is not None:
+                    from .capability_study import run_manifest_template
+                    row['capability_study_run'] = run_manifest_template(self.study_plan, study['cell_id'],
+                                                                      self.run.name, row['attempt_id'])
         self._processes = []
         self.mcp = None
         self.cad_adapter = None
@@ -553,9 +583,10 @@ class Trial:
         self.verify_source()
         if getattr(self, 'cad_backend', None) and self.unified_gateway:
             self.state['stage'] = 'preparation'
-            if not Path(self.config['cad_skill']).is_file():
-                raise ValueError('public CAD modeling skill is missing')
-            self.state['modeling_skill_sha256'] = sha(self.config['cad_skill'])
+            if not getattr(self, 'explicit_capabilities', False):
+                if not Path(self.config['cad_skill']).is_file():
+                    raise ValueError('public CAD modeling skill is missing')
+                self.state['modeling_skill_sha256'] = sha(self.config['cad_skill'])
         if self.config.get("evaluator_directory") or not self.config.get("evaluator_zip"):
             self.evaluator = snapshot_evaluator(self.config.get("evaluator_directory", BASE), self.private / "evaluator")
             self.state["evaluator_source"] = "frozen_directory_snapshot"
@@ -575,6 +606,14 @@ class Trial:
             self.state["adapter"] = doctor
             if not doctor["available"]:
                 raise ValueError("provider CLI lacks required launch flags")
+            if getattr(self, 'explicit_capabilities', False) or self.config.get('candidate_profile') is not None:
+                from .candidate_runtime import observe_launch
+                observed = observe_launch(self.config, doctor)
+                self.state['candidate_selection']['cli_version'] = observed['cli_version']
+                if self.study_plan is not None:
+                    from .capability_study import validate_plan_execution
+                    validate_plan_execution(self.study_plan, self.raw_config['capability_study']['cell_id'],
+                                            self.raw_config, require_verified=True, observed_launch=observed)
             if self.config.get("strict_tool_isolation") and not capabilities()[self.provider]["native_tools_disabled"]:
                 raise ValueError("provider does not support strict native tool exclusion")
         else:
@@ -611,7 +650,9 @@ class Trial:
         self.ledger = Path(self.scheduler("create-run", self.run / "ledger", self.run.name, *cad_args))
         for row in self.state["cases"]:
             self.prepare_case_inputs(row)
-        if getattr(self, 'cad_backend', None) and self.unified_gateway:
+        if negative_control(self.config):
+            self.state['cad_capabilities'].update(cad_connection={'executed': False, 'status': 'negative_control_no_cad'})
+        elif getattr(self, 'cad_backend', None) and self.unified_gateway:
             from .cad import create_adapter
             self.state['stage'] = 'cad_connection'
             self.cad_adapter = create_adapter(self.config, workspace=self.run / 'cad-workspace',
@@ -622,7 +663,8 @@ class Trial:
                                                   cad_connection={'executed': True, 'status': 'passed'})
         else:
             self.mcp = FusionMCP(self.cli_config, self.event, timeout=180)
-        self.probe("initial")
+        if not negative_control(self.config):
+            self.probe("initial")
         self.state["state"] = "ready"
         self.state.pop('failure_stage', None)
         self.save()
@@ -648,6 +690,7 @@ class Trial:
                 self.state['cad_identity'].update({key: instance[key] for key in ('pid', 'session_id', 'version') if key in instance})
             if data.get('fusion_version'):
                 self.state['cad_identity']['version'] = data['fusion_version']
+            self.verify_study_cad_identity()
             self.record_desktop_identity()
             return data
         from .fusion_scripts import workspace_probe_script
@@ -660,6 +703,20 @@ class Trial:
                 or command not in (None, "", "SelectCommand")):
             raise RuntimeError("Fusion workspace not empty or active command present; preserve user documents and halt")
         return data
+
+    def verify_study_cad_identity(self):
+        planned = next((row['capability_study_run']['frozen_identity']['cad_identity']
+                        for row in self.state.get('cases', []) if row.get('capability_study_run')), None)
+        if planned is None or negative_control(self.config):
+            return
+        observed = self.state.get('cad_identity', {})
+        if not isinstance(observed.get('version'), str) or not observed['version'].strip():
+            self.state['cad_identity_verification_status'] = 'not_verified'
+            raise ValueError('study_cad_identity_unverified')
+        if planned.get('backend') != self.cad_backend or planned.get('version') != observed['version']:
+            self.state['cad_identity_verification_status'] = 'mismatch'
+            raise ValueError('planned_cad_identity_mismatch')
+        self.state['cad_identity_verification_status'] = 'observed'
 
     def child_environment(self, workspace, audit_dir, *, smoke=False):
         audit_dir.mkdir(parents=True, exist_ok=False)
@@ -712,10 +769,12 @@ class Trial:
                              protocol_id=self.config.get('protocol', 'fusion-step-adapted-v4.0'), cad_backend=self.cad_backend,
                              cad_config_sha256=self.cad_config_sha256) if smoke else
                         self.case_identity(next(row for row in self.state['cases'] if row['case_id'] == workspace.name)))
-            contract.update(identity, schema='cad-worker/1', cad_skill=self.config['cad_skill'],
+            contract.update(identity, schema='cad-worker/1',
                             expected_instance=self.config.get('expected_instance'),
                             modeling_authorization={'delegated_assumptions': True, 'source': 'benchmark:delegated',
                                 'basis': 'Authorized task delegates implementation details and disclosed assumptions; explicit input dimensions remain authoritative'})
+            if 'candidate_capabilities' not in self.config:
+                contract['cad_skill'] = self.config['cad_skill']
         if not smoke:
             from .input_assets import iter_assets
             row = next(row for row in self.state["cases"] if row["case_id"] == workspace.name)
@@ -724,6 +783,26 @@ class Trial:
             contract["public_files"] = [asset["path"] for asset in iter_assets(row["input_manifest"])]
             if cad_run:
                 contract['modeling_authorization']['task_sha256'] = row['input_manifest']['task']['sha256']
+        runtime = None
+        observed_launch = None
+        if 'candidate_capabilities' in self.config:
+            from .candidate_runtime import freeze_attempt, observe_launch, verify_attempt
+            observed_launch = observe_launch(self.config)
+            if self.study_plan is not None:
+                from .capability_study import validate_plan_execution
+                validate_plan_execution(self.study_plan, self.raw_config['capability_study']['cell_id'],
+                                        self.raw_config, require_verified=True, observed_launch=observed_launch)
+            for key in ('fusion_skill', 'cad_skill', 'modeling_skill'):
+                contract.pop(key, None)
+            contract['schema'] = 'cad-worker/2'
+            runtime, prompt = freeze_attempt(self.config, self.private / 'attempts' / contract['attempt_id'],
+                contract=contract, observed_launch=observed_launch,
+                case={'case_id': contract['case_id']}, input_manifest=contract.get('input_manifest', {}),
+                source_hashes=source_hashes(), smoke=smoke)
+            contract.update(capability_manifest=runtime['capability_manifest'],
+                            capability_manifest_sha256=runtime['capability_manifest_sha256'])
+            verify_attempt(runtime, self.config, source_hashes=source_hashes(), prompt=prompt,
+                           input_manifest=contract.get('input_manifest', {}))
         atomic(audit_dir / "worker-contract.json", contract)
         bootstrap = BASE / "fusion-benchmark-bootstrap.py"
         if bootstrap.exists():
@@ -742,10 +821,43 @@ class Trial:
                 "tool_timeout_s": (max(600, int(self.config['cad_config'].get('executor_timeout_s', 180))) + 60
                                    if getattr(self, 'cad_backend', None) == 'solidworks' else 180),
                 "existing_mcp_names": list(self.cli_config.get("mcp", {}))}
+        spec.update(reasoning=self.config.get('reasoning', {'mode': 'cli_default'}),
+                    reasoning_support=self.config.get('reasoning_support', {}),
+                    expected_actual_model=self.config.get('expected_actual_model'))
+        if observed_launch is not None:
+            spec.update(executable=observed_launch['resolved_executable'], cli_version=observed_launch['cli_version'])
+        elif self.config.get('candidate_profile') is not None or self.config.get('reasoning', {}).get('mode') == 'explicit':
+            from .candidate_runtime import observe_launch, freeze_legacy_attempt, verify_attempt
+            observed_launch = observe_launch(self.config)
+            spec.update(executable=observed_launch['resolved_executable'], cli_version=observed_launch['cli_version'])
+            runtime = freeze_legacy_attempt(self.config, self.private / 'attempts' / contract['attempt_id'],
+                contract=contract, observed_launch=observed_launch, prompt=prompt,
+                input_manifest=contract.get('input_manifest', {}), source_hashes=source_hashes())
+            verify_attempt(runtime, self.config, source_hashes=source_hashes(), prompt=prompt,
+                           input_manifest=contract.get('input_manifest', {}))
+        launch_failure = None
         try:
             result = launch_fresh(spec, self._processes)
+        except BaseException as error:
+            launch_failure = error
+            raise
         finally:
             cleanup_errors = self.cleanup_processes()
+            if runtime is not None and launch_failure is not None:
+                runtime['failure_and_cleanup_evidence'] = {
+                    'classification': 'candidate_launch_failed', 'error_type': type(launch_failure).__name__,
+                    'owned_processes_remaining': len(self._processes), 'cleanup_errors': cleanup_errors}
+                atomic(runtime['attempt_evidence_path'], runtime)
+            self.verify_source()
+            if runtime is not None:
+                verify_attempt(runtime, self.config, source_hashes=source_hashes(), prompt=prompt,
+                               input_manifest=contract.get('input_manifest', {}))
+                if (audit_dir / 'prompt.txt').is_file() and sha(audit_dir / 'prompt.txt') != runtime['prompt_sha256']:
+                    raise ValueError('candidate_prompt_evidence_changed')
+            if getattr(self, 'study_plan', None) is not None:
+                from .capability_study import validate_plan_execution
+                validate_plan_execution(self.study_plan, self.raw_config['capability_study']['cell_id'],
+                                        self.raw_config, require_verified=True, observed_launch=observed_launch)
             if cleanup_errors:
                 raise RuntimeError("provider process cleanup incomplete; reconciliation required")
         state_path = audit_dir / "gateway-state.json"
@@ -772,6 +884,20 @@ class Trial:
                       fusion_tool_calls=gateway.get("fusion_calls"), budget_scope="mcp_tools_scope",
                       cad_tool_calls=gateway.get('cad_calls', gateway.get('fusion_calls')),
                       model_verified=result["session_verification"].get("model_verified") is True)
+        if runtime is not None:
+            from .candidate_runtime import finish_attempt
+            public = finish_attempt(runtime, result, audit_dir)
+            atomic(runtime['attempt_evidence_path'], runtime)
+            result['candidate_selection'] = public
+            self.state['candidate_selection'] = public
+            if not smoke:
+                row['candidate_selection'] = public
+                if runtime.get('capability_manifest'):
+                    row['capability_manifest_private'] = runtime['capability_manifest']
+                row['candidate_attempt_private'] = runtime['attempt_evidence_path']
+                if self.raw_config.get('capability_study'):
+                    row.update({key: value for key, value in self.raw_config['capability_study'].items()
+                                if key in ('experiment_id', 'candidate_profile_id', 'group_id', 'repetition')})
         return result
 
     def launch(self, workspace, audit_dir, prompt, *, smoke=False):
@@ -909,10 +1035,21 @@ class Trial:
                     else 'fusion_mcp_read查询activeCommand，按实际schema传参')
             prompt = ('这是已授权只读连通性测试。只使用benchmark MCP：get_contract；read_input(name=TASK.md)；'
                       'cad_tools读取schema；cad_call使用' + read + '。不要创建、修改、关闭文档或提交文件。完成后仅回复SMOKE_OK。')
+        if negative_control(getattr(self, 'config', {})):
+            prompt = ('Authorized negative_control_no_cad smoke. Use only benchmark MCP: tools/list, get_contract, '
+                      'read_input(name=TASK.md). Do not connect to CAD or submit geometry. Finish with exactly SMOKE_OK.')
         result = self.launch(workspace, self.run / "audit" / "smoke", prompt, smoke=True)
         atomic(self.run / "smoke-result.json", result)
         if result["returncode"] or result["timed_out"] or result["guard_classification"] != "clear":
             raise RuntimeError("guarded OpenCode read-only smoke failed; inspect smoke-result and audit")
+        if negative_control(getattr(self, 'config', {})):
+            observed = strict_json(self.run / 'audit/smoke/capability-evidence.json')
+            names = [entry['name'] for entry in observed.get('observed_tool_surface', [])]
+            if (observed.get('exposure_verification_status') != 'tools_list_recorded'
+                    or not names or any(name in names for name in ('cad_tools', 'cad_call', 'fusion_tools', 'fusion_call'))
+                    or result.get('cad_tool_calls', 0) != 0 or result.get('guard', {}).get('submitted')):
+                raise RuntimeError('negative control capability exposure unconfirmed')
+            return
         if getattr(self, "unified_gateway", False):
             events = [json.loads(line) for line in (self.run / "audit/smoke/gateway-events.jsonl").read_text(encoding="utf-8").splitlines()]
             if getattr(self, 'cad_backend', None):
@@ -998,6 +1135,8 @@ Fusion开始时无文档，只操作自己新建的设计。完成后导出非�
         self.check_cancel()
         self.verify_source()
         self.verify_public_inputs(row)
+        if negative_control(self.config):
+            return self.model_negative_control(row)
         case, workspace = row['case_id'], Path(row['workspace'])
         self.state['stage'] = 'modeling'
         self.probe('before_' + case)
@@ -1024,6 +1163,8 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
         row['execution'] = {key: value for key, value in result.items() if key != 'guard'}
         row['ended_at_utc'] = utc()
         guard, cleanup = result.get('guard', {}), result.get('process_cleanup', {})
+        row['cad_execution_evidence'] = {key: guard[key] for key in
+            ('pending_cad', 'pending_fusion', 'cad_workspace_unconfirmed') if key in guard}
         # A candidate can finish its explanation without opening CAD (for
         # example, an unreadable drawing). This is a missing submission, not an
         # unknown native operation. Require both process and desktop evidence.
@@ -1078,6 +1219,31 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
         self.scheduler('transition', self.ledger, case, 'artifact_staged')
         self.scheduler('freeze-candidate', self.ledger, case)
         row.update(state='candidate_frozen', native_document=native)
+        self.save()
+
+    def model_negative_control(self, row):
+        """Record missing native output without contacting a CAD backend."""
+        row.update(state='modeling', started_at_utc=utc(), negative_control_no_cad=True)
+        self.state['stage'] = 'modeling'
+        self.save()
+        result = self.launch(Path(row['workspace']), self.run / 'audit' / row['case_id'], '')
+        row['execution'] = {key: value for key, value in result.items() if key != 'guard'}
+        row['ended_at_utc'] = utc()
+        guard, cleanup = result.get('guard', {}), result.get('process_cleanup', {})
+        row['cad_execution_evidence'] = {key: guard[key] for key in
+            ('pending_cad', 'pending_fusion', 'cad_workspace_unconfirmed') if key in guard}
+        if (result.get('timed_out') or result.get('cancelled') or result.get('returncode')
+                or result.get('guard_classification') not in ('clear', 'submission_unconfirmed')
+                or guard.get('cad_calls', 0) != 0 or guard.get('pending_cad', 0) != 0 or guard.get('submitted')
+                or cleanup.get('verified_stopped') is not True or cleanup.get('remaining_processes') != 0
+                or self._processes):
+            row.update(state='reconciliation_required', failure_stage='modeling',
+                       failure_reason=result.get('guard_classification', 'negative_control_unconfirmed'))
+            self.save()
+            raise RuntimeError('negative control execution unconfirmed')
+        self.verify_public_inputs(row)
+        row.update(state='candidate_missing', failure_stage='submission', failure_reason='negative_control_no_cad',
+                   negative_control_no_cad=True)
         self.save()
 
     def export(self, row):
@@ -1383,7 +1549,7 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
     def run_all(self, *, preflight_only=False):
         lock = Path(self.config["runs_root"]) / ".fusion-benchmark.lock"
         acquired = False
-        desktop_lock = Path(tempfile.gettempdir()) / 'fusion-benchmark-desktop.lock'
+        desktop_lock = None
         desktop_acquired = False
         interrupted = None
         try:
@@ -1394,9 +1560,10 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
                 json.dump({"pid": os.getpid(), "run": str(self.run), "started_at": utc()}, stream)
                 stream.flush()
                 os.fsync(stream.fileno())
-            if getattr(self, 'unified_gateway', False):
+            if getattr(self, 'unified_gateway', False) and not negative_control(self.config):
                 # A single user desktop can be referenced through several local
                 # endpoints and projects. One shared lease covers all of them.
+                desktop_lock = Path(tempfile.gettempdir()) / 'fusion-benchmark-desktop.lock'
                 with desktop_lock.open('x', encoding='utf-8') as stream:
                     desktop_acquired = True
                     owner = uuid.uuid4().hex
@@ -1415,19 +1582,23 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
                 self.save()
                 for row in self.state["cases"]:
                     self.model(row)
-                self.state["state"] = "trusted_export"
-                self.save()
-                for row in self.state["cases"]:
-                    if row["state"] == "candidate_frozen":
-                        self.check_cancel()
-                        self.export(row)
-                self.state["all_artifacts_frozen"] = all(r.get("artifact_frozen") for r in self.state["cases"])
-                self.state["state"] = "evaluating"
-                self.state['stage'] = 'scoring'
-                self.save()
-                self.evaluate()
-                self.state["batch_complete"] = all(r.get("evaluation_complete") for r in self.state["cases"])
-                self.state["state"] = "completed" if self.state["batch_complete"] else "completed_with_missing_candidates"
+                if negative_control(self.config):
+                    self.state.update(all_artifacts_frozen=False, batch_complete=False,
+                                      state='completed_with_missing_candidates')
+                else:
+                    self.state["state"] = "trusted_export"
+                    self.save()
+                    for row in self.state["cases"]:
+                        if row["state"] == "candidate_frozen":
+                            self.check_cancel()
+                            self.export(row)
+                    self.state["all_artifacts_frozen"] = all(r.get("artifact_frozen") for r in self.state["cases"])
+                    self.state["state"] = "evaluating"
+                    self.state['stage'] = 'scoring'
+                    self.save()
+                    self.evaluate()
+                    self.state["batch_complete"] = all(r.get("evaluation_complete") for r in self.state["cases"])
+                    self.state["state"] = "completed" if self.state["batch_complete"] else "completed_with_missing_candidates"
             self.verify_source()
             if self.state.get("evaluator_manifest_sha256"):
                 self.verify_evaluator()
@@ -1462,6 +1633,13 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
             if interrupted is None:
                 interrupted = getattr(self, "_cleanup_interrupt", None)
             self.state["ended_at_utc"] = utc()
+            for row in self.state['cases']:
+                if row.get('capability_study_run'):
+                    from .candidate_runtime import finalize_study_run
+                    manifest = finalize_study_run(row['capability_study_run'], row, pipeline=self.state)
+                    manifest_path = self.private / 'study-runs' / (row['case_id'] + '-' + row['attempt_id'] + '.json')
+                    atomic(manifest_path, manifest)
+                    row['capability_study_run_manifest'] = str(manifest_path)
             try:
                 self.save()
                 self.report()

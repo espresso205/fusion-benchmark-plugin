@@ -452,6 +452,57 @@ def _prompt_html(text):
     return '<div class="task-body">' + ''.join(parts) + '</div>'
 
 
+def _candidate_keys(row):
+    selection = row.get('candidate_selection') or {}
+    reasoning = selection.get('requested_reasoning') or {}
+    label = ('cli_default' if reasoning.get('mode') == 'cli_default' else
+             ':'.join(str(reasoning.get(key) or 'unknown') for key in ('mode', 'control', 'value')))
+    return {'profile': selection.get('candidate_profile_id') or 'legacy_unprofiled',
+            'group': row.get('group_id') or '未记录',
+            'reasoning': label if reasoning else '未记录'}
+
+
+def _candidate_filters(cases):
+    controls = []
+    for key, label in (('profile', '候选档案'), ('group', '能力组'), ('reasoning', '推理设置')):
+        values = sorted({_candidate_keys(row)[key] for row in cases})
+        if len(values) > 1:
+            options = ''.join(f'<option value="{esc(value)}">{esc(value)}</option>' for value in values)
+            controls.append(f'<select id="{key}-filter" aria-label="筛选{label}"><option value="all">全部{label}</option>{options}</select>')
+    return ''.join(controls)
+
+
+def _candidate_html(row):
+    from fusion_pipeline.candidate_config import project_candidate_evidence
+    selection = project_candidate_evidence(row.get('candidate_selection'))
+    if not selection:
+        return '<p class="muted candidate-evidence">历史运行，未记录能力选择</p>'
+    keys = _candidate_keys(dict(row, candidate_selection=selection))
+    capabilities = selection.get('capability_selection') or {}
+    def chosen(field):
+        value = capabilities.get(field)
+        return '、'.join(value) if value else '无' if value == [] else '未记录'
+    reads = selection.get('actual_skill_reads')
+    read_count = sum(item.get('count', 1) for item in reads) if isinstance(reads, list) else None
+    calls = selection.get('per_server_tool_calls')
+    call_text = '、'.join(f'{key}: {count}' for key, count in calls.items()) if calls else '0' if calls == {} else '未记录'
+    model = selection.get('observed_model_evidence') or {}
+    fields = [('候选档案', keys['profile']), ('CLI', selection.get('provider', '未记录')),
+              ('请求模型', selection.get('requested_model', '未记录')),
+              ('观测模型', model.get('actual_model') or model.get('model') or '未记录'),
+              ('能力组', keys['group']), ('推理请求', keys['reasoning']),
+              ('推理核验', selection.get('reasoning_verification_status', '未记录')),
+              ('推理支持', (selection.get('reasoning_support_evidence') or {}).get('status', '未记录')),
+              ('所选 skills', chosen('skills')), ('所选 MCP', chosen('mcp_servers')),
+              ('暴露方式', capabilities.get('exposure_mode', '未记录')),
+              ('实际暴露核验', selection.get('exposure_verification_status', '未记录')),
+              ('实际使用：技能读取', read_count if read_count is not None else '未记录'),
+              ('实际使用：服务调用', call_text)]
+    items = ''.join(f'<span>{esc(label)}：{esc(value)}</span> ' for label, value in fields)
+    detail = esc(json.dumps(selection, ensure_ascii=False, indent=2, allow_nan=False))
+    return f'<section class="candidate-evidence"><h3>候选配置与能力证据</h3><p>{items}</p><details><summary>配置与来源明细</summary><pre>{detail}</pre></details></section>'
+
+
 def _case_detail(row, index, mode, total):
     state, label = case_state(row)
     interval = row.get('score_interval')
@@ -475,6 +526,7 @@ def _case_detail(row, index, mode, total):
 <div class="result-columns"><section class="metric-panel"><h3>指标分数</h3>{metric_table(row)}<details class="diagnostics"><summary>辅助指标（不计入总分）</summary>{metric_table(row, diagnostics=True)}</details></section><section class="case-analysis"><h3>结论依据</h3>{case_analysis(row, mode)}{_health_html(row)}</section></div>
 {_dimension_findings(row)}{_notes_html('几何核对详情', row.get('enterprise_geometry_notes'), folded=True)}{_cad_html(row)}{_download_html(row.get('downloads'))}</section>
 {input_materials_html(row.get('input_materials'))}
+{_candidate_html(row)}
 {prompt}{_notes_html('候选自述的假设与简化', row.get('candidate_notes'), folded=True)}
 </section>'''
 
@@ -544,7 +596,8 @@ def render_html(data):
     cards = []
     for index, row in enumerate(cases):
         state, label = case_state(row)
-        cards.append(f'<a class="case-card" href="#fixture={quote(str(row.get("case", "")), safe="")}" data-index="{index}" data-state="{state}" data-task="{_task_type(row)}"><div class="card-preview"><div class="comparison-labels"><span>生成模型</span><span>标准答案</span></div>{_preview(row, default_frame(row))}</div><div class="card-body"><b>{esc(_case_title(row))}</b></div></a>')
+        candidate_attributes = ' '.join(f'data-{key}="{esc(value)}"' for key, value in _candidate_keys(row).items())
+        cards.append(f'<a class="case-card" href="#fixture={quote(str(row.get("case", "")), safe="")}" data-index="{index}" data-state="{state}" data-task="{_task_type(row)}" {candidate_attributes}><div class="card-preview"><div class="comparison-labels"><span>生成模型</span><span>标准答案</span></div>{_preview(row, default_frame(row))}</div><div class="card-body"><b>{esc(_case_title(row))}</b></div></a>')
     encoded = json.dumps(data, ensure_ascii=False, allow_nan=False, separators=(',', ':')).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026').replace('\u2028', '\\u2028').replace('\u2029', '\\u2029')
     weight_sets = {tuple((row.get('weights') or {}).get(k) for k in ('shape', 'dimension', 'mass')) for row in cases if row.get('participates_in_scoring')}
     weights_note = '各题采用的权重见单题指标表。'
@@ -555,10 +608,10 @@ def render_html(data):
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(data.get('run_name'))} - CAD 评测结果</title><link rel="stylesheet" href="assets/report.css"></head>
 <body data-report-template="comparison-first-v2"><main><header class="report-header"><div class="report-heading"><h1>{esc(str(data.get('run_name') or 'CAD 评测').replace(' · ', ' '))}</h1><p class="subtitle">{len(cases)} 个案例。左侧生成模型，右侧标准答案。</p></div></header>
 <nav class="page-nav"><a href="#overview">案例列表</a><a href="#analysis">评测分析</a></nav>
-<section id="overview" class="overview"><div class="filters"><input aria-label="搜索题号或任务" id="case-search" type="search" placeholder="搜索题号、企业编号或名称" autocomplete="off"><select aria-label="筛选任务类型" id="task-filter"><option value="all">全部任务</option><option value="generation">生成</option><option value="editing">编辑</option><option value="unknown">未标注</option></select><select aria-label="筛选状态" id="case-filter"><option value="all">全部状态</option><option value="measured">已评分</option><option value="lower_bound">缺测下界</option><option value="invalid">模型无效</option><option value="incomplete">验证未完成</option><option value="pipeline">未评分</option><option value="integrity">结果无法核验</option></select><select aria-label="排序" id="case-sort"><option value="case">按题号</option><option value="desc">分数从高到低</option><option value="asc">分数从低到高</option></select><span id="visible-count">{len(cases)} 个案例</span></div>
+<section id="overview" class="overview"><div class="filters"><input aria-label="搜索题号或任务" id="case-search" type="search" placeholder="搜索题号、企业编号或名称" autocomplete="off"><select aria-label="筛选任务类型" id="task-filter"><option value="all">全部任务</option><option value="generation">生成</option><option value="editing">编辑</option><option value="unknown">未标注</option></select><select aria-label="筛选状态" id="case-filter"><option value="all">全部状态</option><option value="measured">已评分</option><option value="lower_bound">缺测下界</option><option value="invalid">模型无效</option><option value="incomplete">验证未完成</option><option value="pipeline">未评分</option><option value="integrity">结果无法核验</option></select><select aria-label="排序" id="case-sort"><option value="case">按题号</option><option value="desc">分数从高到低</option><option value="asc">分数从低到高</option></select>{_candidate_filters(cases)}<span id="visible-count">{len(cases)} 个案例</span></div>
 <div class="case-grid">{''.join(cards)}</div><p id="empty-filter" hidden>没有符合筛选的案例。</p></section>
 <div id="case-details">{''.join(_case_detail(row, i, mode, len(cases)) for i, row in enumerate(cases))}</div>
-<section id="analysis" class="appendix"><h2>评测分析</h2><div class="summary-line">{stat_html}</div><p>均分只统计参与评分的记录，包含缺测下界；未评分题不按零分解释。</p>{_batch_context(data)}{_task_summary(cases)}{_cad_html(data, include_backend=True)}{_download_html(data.get('downloads'), batch=True)}{_score_legend()}<h3>指标含义</h3><p>{mode_note}。形状符合度衡量体积重合、表面接近程度与拓扑结构；尺寸符合度检查外形尺寸、直径和几何特征；材料分布检查体积与主惯性矩。{weights_note}</p><p>体积重合较高仍可能遗漏小孔或薄壁。尺寸检查未覆盖完整图纸公差，体积与惯性一致也不能唯一确定形状。几何对齐仅允许平移和旋转。</p><details><summary>指标消融</summary>{_analysis_html(data.get('analysis'))}</details></section>
+<section id="analysis" class="appendix"><h2>评测分析</h2><div class="summary-line">{stat_html}</div><p>均分只统计参与评分的记录，包含缺测下界；未评分题不按零分解释。</p>{_batch_context(data)}{_candidate_html(data)}{_task_summary(cases)}{_cad_html(data, include_backend=True)}{_download_html(data.get('downloads'), batch=True)}{_score_legend()}<h3>指标含义</h3><p>{mode_note}。形状符合度衡量体积重合、表面接近程度与拓扑结构；尺寸符合度检查外形尺寸、直径和几何特征；材料分布检查体积与主惯性矩。{weights_note}</p><p>体积重合较高仍可能遗漏小孔或薄壁。尺寸检查未覆盖完整图纸公差，体积与惯性一致也不能唯一确定形状。几何对齐仅允许平移和旋转。</p><details><summary>指标消融</summary>{_analysis_html(data.get('analysis'))}</details></section>
 </main><dialog id="image-lightbox" class="image-lightbox" aria-label="图片放大"><div class="lightbox-toolbar"><p class="lightbox-caption" aria-live="polite"></p><button data-lightbox-close aria-label="关闭放大图片">关闭 ×</button></div><img class="lightbox-image" alt=""><div class="lightbox-controls"><button data-lightbox-step="-1" aria-label="上一张图片">← 上一张</button><span class="lightbox-count" aria-live="polite"></span><button data-lightbox-step="1" aria-label="下一张图片">下一张 →</button></div></dialog><script id="report-data" type="application/json">{encoded}</script><script src="assets/report.js" defer></script></body></html>'''
 
 

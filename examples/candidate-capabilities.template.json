@@ -1,0 +1,7 @@
+{
+  "schema": "candidate-capability-registry/1",
+  "skills": {},
+  "mcp_servers": {
+    "cad_native": {"kind": "builtin_cad_adapter"}
+  }
+}

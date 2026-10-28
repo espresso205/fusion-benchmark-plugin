@@ -23,6 +23,10 @@ const view = frame => ({candidate: 'mesh.json', reference: 'mesh.json',
   previews: Object.fromEntries(['iso','front','top','right'].map(angle => [angle,
     Object.fromEntries(['split','overlay','difference'].map(kind => [kind, `${frame}-${angle}-${kind}.svg`]))]))});
 const row = id => ({case:id, enterprise_id:id==='A'?'E005':'E006', enterprise_title:id==='A'?'Guide pin':'Support plate', status:'ok', score_kind:'measured', final_score:.8,
+  group_id:id, candidate_selection:{candidate_profile_id:id==='A'?'claude_low':'claude_high',provider:'claude',
+    requested_model:'fixture',requested_reasoning:{mode:'explicit',control:'effort',value:id==='A'?'low':'high'},
+    capability_selection:{skills:[],mcp_servers:['cad_native'],exposure_mode:'gateway_proxy'},
+    actual_skill_reads:[],per_server_tool_calls:{cad_native:2}},
   participates_in_scoring:true, integrity_status:'verified', geometry:{candidate_status:'valid'},
   measurement_weight_coverage:1, weights:{shape:6/13,dimension:5/13,mass:2/13},
   metrics:{}, display:{views:{scoring:view('scoring'),world:view('world')}},
@@ -177,6 +181,24 @@ test('case search finds enterprise identifiers and original titles',options,asyn
     const visible=page.locator('.case-card:visible');assert.equal(await visible.count(),1);
     assert.equal(await visible.getAttribute('href'),'#fixture=A');
   }
+});
+test('profile, group and reasoning filters combine without changing comparison navigation',options,async t=>{
+  const page=await open(t);await page.goto(base+'#overview');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true,
+    'additional filters must stay within the report width');
+  await page.locator('#profile-filter').selectOption('claude_high');
+  assert.equal(await page.locator('.case-card:visible').count(),1);
+  assert.equal(await page.locator('.case-card:visible').getAttribute('href'),'#fixture=B');
+  await page.locator('#group-filter').selectOption('A');
+  assert.equal(await page.locator('.case-card:visible').count(),0);
+  await page.locator('#group-filter').selectOption('B');
+  await page.locator('#reasoning-filter').selectOption('explicit:effort:low');
+  assert.equal(await page.locator('.case-card:visible').count(),0);
+  await page.locator('#reasoning-filter').selectOption('explicit:effort:high');
+  await page.locator('.case-card:visible').click();await ready(page);
+  assert.equal(new URL(page.url()).hash,'#fixture=B');
+  assert.match(await page.locator('.case-detail.active .candidate-evidence').textContent(),/claude_high/);
+  assert.equal(await page.locator('body').getAttribute('data-report-template'),'comparison-first-v2');
 });
 test('difference legend distinguishes display tolerance from raw intersection',options,async t=>{
   const page=await open(t),section=page.locator('.case-detail.active');

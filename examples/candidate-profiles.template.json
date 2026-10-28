@@ -1,0 +1,30 @@
+{
+  "schema": "candidate-profiles/1",
+  "candidate_profiles": {
+    "claude_main": {
+      "provider": "claude",
+      "model": "REPLACE_WITH_EXPLICIT_MODEL",
+      "cli_executable": "C:/REPLACE_WITH_RECIPIENT_PATH/claude.exe",
+      "reasoning": {"mode": "cli_default"},
+      "strict_tool_isolation": true
+    },
+    "codex_main": {
+      "provider": "codex",
+      "model": "REPLACE_WITH_EXPLICIT_MODEL",
+      "cli_executable": "C:/REPLACE_WITH_RECIPIENT_PATH/codex.exe",
+      "reasoning": {"mode": "cli_default"},
+      "strict_tool_isolation": false,
+      "native_tools_authorization": {
+        "source": "REPLACE_WITH_ACTUAL_MAINTAINER_AUTHORIZATION",
+        "scope": "trusted same-account execution; not an OS sandbox"
+      }
+    },
+    "opencode_main": {
+      "provider": "opencode",
+      "model": "REPLACE_WITH_EXPLICIT_PROVIDER_AND_MODEL",
+      "cli_executable": "C:/REPLACE_WITH_RECIPIENT_PATH/opencode.exe",
+      "reasoning": {"mode": "cli_default"},
+      "strict_tool_isolation": true
+    }
+  }
+}

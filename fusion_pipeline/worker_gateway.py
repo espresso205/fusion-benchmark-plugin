@@ -4,6 +4,7 @@ This is a trusted same-account boundary, not an OS sandbox. The coordinator's
 batch lock owns the single Fusion desktop for the entire attempt and export.
 """
 import hashlib
+import copy
 import io
 import json
 import os
@@ -11,6 +12,7 @@ from pathlib import Path
 import re
 import stat
 import time
+import threading
 import uuid
 
 from .service import tool, RawToolResult
@@ -136,9 +138,13 @@ class WorkerGateway:
         self.state_path = self.audit / "gateway-state.json"
         self.lock_path = self.audit / "gateway.lock"
         self.upstream = upstream
-        self.generic = self.contract.get("schema") == "cad-worker/1"
+        self.explicit = self.contract.get("schema") == "cad-worker/2"
+        self.generic = self.contract.get("schema") in {"cad-worker/1", "cad-worker/2"}
+        self.auxiliary = None
+        self._closed = False
+        self._watch_stop = threading.Event()
         self.backend = self.contract.get("cad_backend", "fusion")
-        if self.contract.get("schema") not in {"fusion-worker/1", "cad-worker/1"}:
+        if self.contract.get("schema") not in {"fusion-worker/1", "cad-worker/1", "cad-worker/2"}:
             raise GatewayError("worker_schema_invalid")
         if self.generic:
             if self.backend not in {"fusion", "solidworks"} or any(not isinstance(self.contract.get(key), str)
@@ -158,6 +164,157 @@ class WorkerGateway:
                 "SolidWorks configuration. Unknown native execution must not be retried. No reference or scoring access.")
         if self.contract.get("budget_scope") != "mcp_tools_scope":
             raise GatewayError("invalid_budget_scope")
+        if self.explicit:
+            from .capabilities import public_capabilities
+            from .candidate_prompt import build_gateway_instructions
+            if any(key in self.contract for key in ("cad_skill", "fusion_skill", "modeling_skill")):
+                raise GatewayError("legacy_skill_selection_conflict")
+            self._verify_capabilities()
+            self.public_capabilities = public_capabilities(self.capability_manifest)
+            self.cad_enabled = "cad_native" in self.public_capabilities["mcp_servers"]
+            self.tools = copy.deepcopy(self.tools)
+            for entry in self.tools:
+                if entry["name"] == "read_input":
+                    entry["description"] = "Read a declared public task input by ID or relative path. Images require read_image."
+            self.tools += [tool("list_skills", "List selected optional skills and their declared static resources.", readonly=True),
+                tool("read_skill", "Read one selected optional skill or its declared static resource by ID.",
+                     {"id": {"type": "string"}, "resource_id": {"type": "string"}}, ("id",), True)]
+            if not self.cad_enabled:
+                self.tools = [entry for entry in self.tools if entry["name"] not in {"cad_tools", "cad_call"}]
+                next(entry for entry in self.tools if entry["name"] == "submit")["inputSchema"] = {
+                    "type": "object", "properties": {}, "additionalProperties": False}
+            self.instructions = build_gateway_instructions(self.contract, self.public_capabilities)
+            self.evidence_path = self.audit / "capability-evidence.json"
+            self.capability_evidence = json.loads(self.evidence_path.read_text(encoding="utf-8")) if self.evidence_path.exists() else {
+                "schema": "candidate-capability-evidence/1", "selection_sha256": self.public_capabilities["selection_sha256"],
+                "contract_sha256": self.contract_hash, "tools_list_responses": [], "actual_skill_reads": [],
+                "observed_tool_surface": [], "candidate_visible_tool_schema_hash": None,
+                "exposure_verification_status": "not_verified", "per_server_tool_calls": {}, "cleanup_evidence": None}
+            if self.capability_evidence["contract_sha256"] != self.contract_hash:
+                raise GatewayError("capability_evidence_contract_changed")
+            self._persist_capability_evidence()
+
+    def _verify_capabilities(self):
+        from .capabilities import verify_frozen_capabilities
+        try:
+            raw = Path(self.contract["capability_manifest"]).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != self.contract["capability_manifest_sha256"]:
+                raise ValueError("digest")
+            manifest = json.loads(raw)
+            verify_frozen_capabilities(manifest, verify_sources=False)
+            if manifest["cad_backend"] != self.backend:
+                raise ValueError("backend")
+            self.capability_manifest = manifest
+        except (KeyError, ValueError, OSError, TypeError):
+            raise GatewayError("capability_integrity_failed") from None
+
+    def _persist_capability_evidence(self):
+        from .runner import atomic
+        if self.auxiliary is not None:
+            observed = self.auxiliary.evidence()
+            for key in ("observed_server_identity", "per_server_tool_calls", "audit_failure_evidence"):
+                self.capability_evidence[key] = observed[key]
+            if observed["cleanup_evidence"] is not None:
+                self.capability_evidence["cleanup_evidence"] = observed["cleanup_evidence"]
+        atomic(self.evidence_path, self.capability_evidence)
+
+    def _check_capability_lifecycle(self, state):
+        reason = ("attempt_submitted" if state["submitted"] else
+                  "attempt_cancelled" if self.contract.get("cancel_file") and Path(self.contract["cancel_file"]).exists() else
+                  "time_budget_exceeded" if time.time() >= self.contract["deadline"] else
+                  "attempt_closed" if self._closed else None)
+        if reason:
+            self.close()
+            raise GatewayError(reason)
+
+    def _discover_auxiliary(self):
+        from .aux_mcp import AuxiliaryMCPManager, AuxiliaryMCPError
+        if self.auxiliary is None:
+            self._verify_capabilities()
+            self.auxiliary = AuxiliaryMCPManager(self.capability_manifest, self.audit / "auxiliary",
+                time.monotonic() + max(0, self.contract["deadline"] - time.time()), dict(os.environ))
+            def watch():
+                while not self._watch_stop.wait(0.1):
+                    if (self.contract.get("cancel_file") and Path(self.contract["cancel_file"]).exists()) or time.time() >= self.contract["deadline"]:
+                        self.auxiliary.revoke("cancelled_or_deadline")
+                        return
+            self._watcher = threading.Thread(target=watch, daemon=True)
+            self._watcher.start()
+        try:
+            surface = self.auxiliary.discover()
+            core = [entry for entry in self.tools if not entry["name"].startswith("aux__")]
+            for name, descriptor in surface.items():
+                if any(entry["name"] == name for entry in core):
+                    raise GatewayError("auxiliary_namespace_collision")
+                core.append({key: copy.deepcopy(value) for key, value in descriptor.items()
+                             if key not in {"server_id", "upstream_name"}} | {"name": name})
+            self.tools = core
+        except AuxiliaryMCPError as error:
+            raise GatewayError(error.code) from None
+        finally:
+            self._persist_capability_evidence()
+
+    def list_tools(self):
+        if not self.explicit:
+            return {"tools": copy.deepcopy(self.tools)}
+        try:
+            descriptor = os.open(self.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            raise GatewayError("gateway_busy_or_unreconciled") from None
+        try:
+            state = self._state()
+            self._check_capability_lifecycle(state)
+            self._discover_auxiliary()
+            response = {"tools": copy.deepcopy(self.tools)}
+            digest = _json_hash(response)
+            self.capability_evidence["tools_list_responses"].append({"response": copy.deepcopy(response), "sha256": digest})
+            self.capability_evidence.update(observed_tool_surface=copy.deepcopy(response["tools"]),
+                candidate_visible_tool_schema_hash=digest, exposure_verification_status="tools_list_recorded")
+            self._save(state, {"type": "tools_list", "response_sha256": digest})
+            self._persist_capability_evidence()
+            return response
+        finally:
+            os.close(descriptor)
+            self.lock_path.unlink()
+
+    def close(self):
+        self._closed = True
+        self._watch_stop.set()
+        receipt = self.auxiliary.close() if self.auxiliary is not None else {
+            "verified_stopped": True, "servers": [], "status": "not_started"}
+        if self.explicit:
+            self.capability_evidence["cleanup_evidence"] = receipt
+            self._persist_capability_evidence()
+        return receipt
+
+    def _read_skill(self, arguments):
+        skill_id, resource_id = arguments["id"], arguments.get("resource_id")
+        if skill_id not in self.capability_manifest["ordered_enabled_skill_ids"]:
+            raise GatewayError("skill_not_enabled")
+        skill = self.capability_manifest["skills"][skill_id]
+        entry = skill if resource_id is None else next((r for r in skill["resources"] if r["id"] == resource_id), None)
+        if entry is None:
+            raise GatewayError("skill_resource_denied")
+        self._verify_capabilities()
+        from .capabilities import _read_file
+        try:
+            _, data = _read_file(entry["snapshot_path"])
+        except (ValueError, OSError):
+            raise GatewayError("capability_integrity_failed") from None
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != entry.get("content_sha256", entry.get("sha256")):
+            raise GatewayError("capability_integrity_failed")
+        metadata = {"id": skill_id, "resource_id": resource_id, "sha256": digest}
+        media_type = entry.get("media_type", "text/markdown")
+        if media_type.startswith("image/"):
+            import base64
+            result = RawToolResult({"content": [{"type": "image", "mimeType": media_type,
+                "data": base64.b64encode(data).decode("ascii")}], "structuredContent": metadata})
+        else:
+            result = {**metadata, "text": data.decode("utf-8")}
+        self.capability_evidence["actual_skill_reads"].append(copy.deepcopy(metadata))
+        self._persist_capability_evidence()
+        return result
 
     def _upstream(self):
         if self.upstream is None:
@@ -237,6 +394,8 @@ class WorkerGateway:
             raise GatewayError("gateway_busy_or_unreconciled") from None
         try:
             state = self._state()
+            if self.explicit:
+                self._check_capability_lifecycle(state)
             if state["submitted"]:
                 raise GatewayError("attempt_submitted")
             if self.contract.get("cancel_file") and Path(self.contract["cancel_file"]).exists():
@@ -295,6 +454,8 @@ class WorkerGateway:
         state, request = None, None
         try:
             state = self._state()
+            if self.explicit:
+                self._check_capability_lifecycle(state)
             if state["submitted"]:
                 raise GatewayError("attempt_submitted")
             if self.contract.get("cancel_file") and Path(self.contract["cancel_file"]).exists():
@@ -310,6 +471,13 @@ class WorkerGateway:
             self._save(state, {"type": "request", **request})
             if state["calls"] > self.contract["max_tool_calls"]:
                 raise GatewayError("tool_budget_exceeded")
+            if self.explicit and name.startswith("aux__"):
+                possible = {"aux__" + sid + "__" + upstream for sid, definition in
+                    self.capability_manifest["requested_server_definitions"].items()
+                    if sid in self.capability_manifest["ordered_enabled_mcp_ids"] and definition["kind"] == "stdio"
+                    for upstream in definition["allowed_tools"]}
+                if name in possible:
+                    self._discover_auxiliary()
             definition = next((entry for entry in self.tools if entry["name"] == name), None)
             if definition is None:
                 raise GatewayError("unknown_worker_tool")
@@ -321,9 +489,25 @@ class WorkerGateway:
                 return self._cad_call(arguments, state, request)
             if name == "cad_tools":
                 result = {"cad_backend": self.backend, "tools": list(self._catalog().values())}
+            elif self.explicit and name.startswith("aux__"):
+                from .aux_mcp import AuxiliaryMCPError
+                try:
+                    result = RawToolResult(self.auxiliary.call(name, arguments))
+                except AuxiliaryMCPError as error:
+                    raise GatewayError(error.code) from None
+                finally:
+                    self._persist_capability_evidence()
+            elif self.explicit and name == "list_skills":
+                result = {"skills": copy.deepcopy(self.public_capabilities["skills"])}
+            elif self.explicit and name == "read_skill":
+                result = self._read_skill(arguments)
             elif name == "submit":
+                if self.explicit and not self.cad_enabled:
+                    raise GatewayError("cad_capability_disabled")
                 self._verify_inputs()
                 result = self._submit_native(arguments, state)
+                if self.explicit:
+                    self.close()
             else:
                 if name == "write_report":
                     self._guard_workspace_file(self.workspace / "worker_report.json")
@@ -334,6 +518,10 @@ class WorkerGateway:
                     result.update(native_submission=submission_spec(self.backend), contract_sha256=self.contract_hash,
                                   modeling_authorization=self.contract.get("modeling_authorization", {}),
                                   remaining_cad_calls=max(0, self.contract.get("max_cad_tool_calls", self.contract["max_tool_calls"]) - state["cad_calls"]))
+                    if self.explicit:
+                        result["public_capabilities"] = copy.deepcopy(self.public_capabilities)
+                        if not self.cad_enabled:
+                            result.pop("native_submission", None)
             event = {"type": "completed", **request}
             if name == "read_image":
                 metadata = result["structuredContent"]
@@ -765,6 +953,8 @@ class WorkerGateway:
         return receipt
 
     def _public(self, name):
+        if self.explicit and name in {"cad_skill", "fusion_skill", "modeling_skill"}:
+            raise GatewayError("input_denied")
         if name == "cad_skill" and self.generic and self.contract.get("cad_skill"):
             return Path(self.contract["cad_skill"])
         if name == "fusion_skill" and self.contract.get("fusion_skill"):
@@ -818,6 +1008,8 @@ class WorkerGateway:
                                "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
             return {"case_id": self.contract["case_id"], "inputs": inputs}
         if name == "read_input":
+            if self.explicit and arguments["name"] in {"cad_skill", "fusion_skill", "modeling_skill"}:
+                raise GatewayError("input_denied")
             if "input_manifest" in self.contract and arguments["name"] not in {"fusion_skill", "cad_skill"}:
                 asset = self._input_descriptor(arguments["name"], allow_path=True)
                 if asset["mime"].startswith("image/"):

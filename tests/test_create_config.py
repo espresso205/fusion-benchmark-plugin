@@ -82,6 +82,65 @@ class CreateConfigTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(target.exists())
 
+    def test_explicit_empty_selection_has_no_legacy_fields_and_requires_both_switches(self):
+        registry = self.root / 'registry.json'
+        registry.write_text(json.dumps({'schema': 'candidate-capability-registry/1', 'skills': {},
+            'mcp_servers': {'cad_native': {'kind': 'builtin_cad_adapter'}}}))
+        result, target = self.generate('claude', '--capability-registry', str(registry),
+                                       '--no-skills', '--mcps', 'cad_native')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(target.read_text())
+        self.assertEqual(config['candidate_capabilities']['skills'], [])
+        self.assertFalse({'cad_skill', 'modeling_skill', 'fusion_skill'} & set(config))
+        result, target = self.generate('opencode', '--capability-registry', str(registry), '--no-skills')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(target.exists())
+
+    def test_profile_path_is_complete_and_mutually_exclusive_with_legacy_flags(self):
+        profiles = self.root / 'profiles.json'
+        profiles.write_text(json.dumps({'schema': 'candidate-profiles/1', 'candidate_profiles': {'fixture': {
+            'provider': 'claude', 'model': 'chosen-model', 'cli_executable': sys.executable,
+            'reasoning': {'mode': 'cli_default'}, 'strict_tool_isolation': True}}}))
+        target = self.root / 'profile.json'
+        args = [sys.executable, '-B', str(SCRIPT), '--output', str(target),
+            '--candidate-profiles-file', str(profiles), '--candidate-profile', 'fixture',
+            '--questions-root', str(self.root/'public'), '--private-cases', str(self.root/'cases.json'),
+            '--runs-root', str(self.root/'runs'), '--private-runs-root', str(self.root/'private'),
+            '--fusion-url', 'http://127.0.0.1:8000/mcp']
+        result = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(target.read_text())['model'], 'chosen-model')
+        target.unlink()
+        result = subprocess.run(args + ['--provider', 'claude'], capture_output=True, text=True, encoding='utf-8', timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(target.exists())
+
+    def test_reasoning_selection_flags_generate_request_and_are_mutually_exclusive(self):
+        support = self.root / 'support.json'
+        support.write_text(json.dumps(dict(provider='claude', model='example/model', cli_version='fixture',
+            status='verified', controls={'effort': ['high']}, evidence_sha256='0'*64)))
+        result, target = self.generate('claude', '--reasoning-effort', 'high', '--reasoning-support', str(support))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(target.read_text())['reasoning'],
+                         dict(mode='explicit', control='effort', value='high'))
+        target.unlink()
+        result, target = self.generate('claude', '--reasoning-effort', 'high', '--reasoning-default')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(target.exists())
+        result, target = self.generate('claude', '--reasoning-default')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(target.read_text())['reasoning'], {'mode': 'cli_default'})
+
+    def test_explicit_reasoning_without_support_can_be_saved_as_unverified_draft(self):
+        result, target = self.generate('claude', '--reasoning-effort', 'high')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(target.read_text())
+        self.assertEqual(config['reasoning'], {'mode': 'explicit', 'control': 'effort', 'value': 'high'})
+        self.assertEqual(config['resolved_reasoning']['support_status'], 'not_verified')
+        self.assertIsNone(config['resolved_reasoning']['resolved'])
+        self.assertEqual(config['resolved_reasoning']['native_parameters'], [])
+        self.assertIsNone(config['candidate_selection']['supported_values'])
+
 
 if __name__ == '__main__':
     unittest.main()

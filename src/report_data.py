@@ -430,6 +430,7 @@ def load_report(source, *, pipeline=None, analysis=None, run_name=None):
     ValueError. An unreadable/altered manifest quarantines all known cases.
     An incompatible optional analysis rejects only the appendix.
     """
+    from fusion_pipeline.candidate_config import project_candidate_evidence
     _require(pipeline is None or isinstance(pipeline, dict), 'pipeline object required')
     pipeline = pipeline or {}
     pipeline_cases = _case_map(pipeline.get('cases', []), 'case_id')
@@ -484,6 +485,13 @@ def load_report(source, *, pipeline=None, analysis=None, run_name=None):
             by_id[case] = result
         by_id[case]['pipeline_state'] = _text(row.get('state', row.get('status', 'unknown')))
         by_id[case].update(project_cad_provenance(row))
+        selection = project_candidate_evidence(row.get('candidate_selection'))
+        if selection:
+            by_id[case]['candidate_selection'] = selection
+        experiment = row.get('experiment')
+        group = row.get('group_id', experiment.get('group_id') if isinstance(experiment, dict) else None)
+        if isinstance(group, str):
+            by_id[case]['group_id'] = _text(group)
     cases.sort(key=lambda row: row['case'])
     public_files = [{'path': name, 'sha256': digest} for name, digest in sorted(reader.files.items())] if reader else []
     appendix = _analysis(analysis, reader, cases, mode, weights) if analysis is not None else {'status': 'not_provided'}
@@ -495,6 +503,9 @@ def load_report(source, *, pipeline=None, analysis=None, run_name=None):
             'summary': _summary(cases), 'cases': cases, 'analysis': appendix,
             'warnings': warnings, 'source_files': public_files}
     data.update(project_cad_provenance(pipeline))
+    selection = project_candidate_evidence(pipeline.get('candidate_selection'))
+    if selection:
+        data['candidate_selection'] = selection
     return ReportBundle(data, models, public_files)
 
 

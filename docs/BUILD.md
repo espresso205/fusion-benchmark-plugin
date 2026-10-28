@@ -26,4 +26,17 @@ HTML 验收包括直接打开 `index.html` 阅读静态内容、用包内 Python
 
 `scripts/package_fusion_pipeline.py` 保留旧冻结 ZIP 叠加打包能力，只用于历史 v2 分发复现。它不是 v4.0.0 的推荐构建入口，也不会自动生成新版便携运行时。
 
+两条实际打包白名单均包含候选能力模块 `capabilities/candidate_profiles/reasoning/candidate_config/candidate_prompt/aux_mcp/capability_study/candidate_runtime`，公共 `agent/common-protocol/` 三份协议、Fusion/SolidWorks 可选 guidance、能力选择与实验说明以及两个占位 JSON 模板。运行端还需把这些模块及协议资源纳入源码身份和运行快照闭包；只修改打包清单不能代替运行快照核验。维护端实际档案、注册表、认证配置、私有输入和运行输出不进入白名单。分发前仅编辑维护端副本，仓库中的模板应保持公开占位内容。
+
+定向源码验证包括：
+
+```powershell
+python -B -m unittest tests.test_capability_reporting_cli tests.test_package_fusion_pipeline tests.test_portable_plugin -v
+node --test tests/report_state.browser.test.cjs
+```
+
+第一条在临时中文/空格目录用两条白名单创建无依赖源码测试镜像，以 `-I -S` 执行真实离线 plan/analyze；缺少白名单文件、文件篡改和混入未列私有文件仍由打包规划/完整性测试拒绝。浏览器测试需要 Playwright 与可用 Chromium/Edge，未具备时明确跳过。测试镜像不生成发布包，不验证真实 CLI 登录、原生推理参数回显、CAD 建模或能力带来的质量提升。完整发布后仍需前述便携运行时与移位验收。
+
+镜像测试分别覆盖 `common_identity_mode=draft` 的未绑定计划和 `capture` 的实际安装身份捕获。后者独立核对移位镜像内的源码、评分器、协议、公开输入、GT 与标注字节，再用捕获身份生成 `verify` 计划；任一来源改变都会在创建输出前拒绝。静态捕获可以导入 runner 的只读哈希辅助函数，但不得启动 CLI、CAD 或 MCP 子进程。离线分析只读取冻结证据，即使原始数据或评分器已不可用仍可完成；这不赋予执行准入或正式建模验证。
+
 源码测试命令见[README](../README.md)。三项可选历史回归测试从 `FUSION_BENCHMARK_REGRESSION_ROOT/Qxx/cases.json` 读取组织者提供的资产，默认跳过；仓库不包含这些数据。`SCORING_SOURCE_MANIFEST.json` 覆盖评分核心及 vendored 源码，不能替代便携包的全文件清单。

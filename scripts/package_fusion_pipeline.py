@@ -38,8 +38,18 @@ OVERLAY_FILES = (
     'tests/fusion_guard.test.mjs',
     'tests/test_package_fusion_pipeline.py',
     'scripts/package_fusion_pipeline.py',
+    'docs/CAPABILITY_STUDY.md', 'docs/CANDIDATE_CAPABILITIES.md', 'docs/CANDIDATE_CLIS.md', 'docs/PROTOCOL_SKILL_SPLIT.md',
+    'agent/common-protocol/PROTOCOL.md', 'agent/common-protocol/FUSION.md', 'agent/common-protocol/SOLIDWORKS.md',
+    'agent/fusion-guidance/SKILL.md', 'agent/solidworks-guidance/SKILL.md',
+    'examples/candidate-profiles.template.json', 'examples/candidate-capabilities.template.json',
 )
-REQUIRED_PIPELINE_MODULES = {'__init__.py', '__main__.py', 'runner.py', 'mcp.py', 'fusion_scripts.py', 'integration_smoke.py'}
+REQUIRED_PIPELINE_MODULES = {
+    '__init__.py', '__main__.py', 'runner.py', 'mcp.py', 'fusion_scripts.py', 'integration_smoke.py',
+    'cli.py', 'service.py', 'adapters.py', 'discovery.py', 'worker_gateway.py', 'native_contract.py',
+    'cad.py', 'solidworks.py', 'stdio_mcp.py', 'solidworks_helper.py', 'cad_probe.py', 'input_assets.py',
+    'visual_check.py', 'reporting.py', 'capabilities.py', 'candidate_profiles.py', 'reasoning.py',
+    'candidate_config.py', 'candidate_prompt.py', 'aux_mcp.py', 'capability_study.py', 'candidate_runtime.py',
+}
 EXAMPLE_CONFIG = {
     'model': 'lanyi/gpt-6.1-sol',
     'evaluator_zip': 'C:/benchmark/payload/evaluator.zip',

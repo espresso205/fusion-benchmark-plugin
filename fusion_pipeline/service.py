@@ -39,7 +39,7 @@ def dispatch(service, message):
     elif method == "ping":
         result = {}
     elif method == "tools/list":
-        result = {"tools": service.tools}
+        result = service.list_tools() if callable(getattr(service, 'list_tools', None)) else {"tools": service.tools}
     elif method == "tools/call":
         try:
             name, arguments = params.get("name"), params.get("arguments", {})
@@ -67,17 +67,21 @@ def dispatch(service, message):
 def serve(service, input_stream=None, output_stream=None):
     source = input_stream or sys.stdin.buffer
     target = output_stream or sys.stdout.buffer
-    for line in source:
-        try:
-            if len(line) > 16 * 1024 * 1024:
-                raise ValueError("request too large")
-            message = json.loads(line)
-            response = dispatch(service, message)
-        except (ValueError, UnicodeError):
-            response = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}
-        if response is not None:
-            target.write((json.dumps(response, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
-            target.flush()
+    try:
+        for line in source:
+            try:
+                if len(line) > 16 * 1024 * 1024:
+                    raise ValueError("request too large")
+                message = json.loads(line)
+                response = dispatch(service, message)
+            except (ValueError, UnicodeError):
+                response = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}
+            if response is not None:
+                target.write((json.dumps(response, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8"))
+                target.flush()
+    finally:
+        if callable(getattr(service, 'close', None)):
+            service.close()
 
 
 class ManagementService:
@@ -90,6 +94,18 @@ class ManagementService:
         tool("preflight", "Read-only local configuration and CLI checks; no model or Fusion calls.", readonly=True),
         tool("start_run", "Start an authorized new benchmark in background. Never resumes an old attempt.",
              {"provider": {"type": "string", "enum": ["opencode", "codex", "claude"]}, "model": {"type": "string"},
+              "candidate_profile": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,47}$"},
+              "reasoning": {"type": "object", "additionalProperties": False,
+                  "properties": {"mode": {"enum": ["cli_default", "explicit"]},
+                                 "control": {"enum": ["effort", "variant"]}, "value": {"type": "string"}},
+                  "required": ["mode"]},
+              "candidate_capabilities": {"type": "object", "additionalProperties": False,
+                  "properties": {"schema": {"const": "candidate-capabilities/1"},
+                      "study_kind": {"enum": ["capability_ablation", "negative_control_no_cad"]},
+                      "skill_delivery": {"const": "gateway_read"}, "exposure_mode": {"const": "gateway_proxy"},
+                      "skills": {"type": "array", "items": {"type": "string"}},
+                      "mcp_servers": {"type": "array", "items": {"type": "string"}}},
+                  "required": ["schema", "study_kind", "skill_delivery", "exposure_mode", "skills", "mcp_servers"]},
               "protocol":{"type":"string","enum":["fusion-step-adapted-v3.0","fusion-step-adapted-v4.0"]},
               "coordinate_mode":{"type":"string","enum":["geometry","strict"]},
               "cad_backend":{"type":"string","enum":["fusion","solidworks"]},
@@ -115,6 +131,16 @@ class ManagementService:
         from .adapters import capabilities, probe
         if name == "capabilities":
             from .cad import cad_capabilities
+            selected = None
+            validation = {'status': 'not_configured'}
+            if self.config is not None:
+                from .candidate_config import resolve_candidate_configuration
+                try:
+                    selected = resolve_candidate_configuration(self.config)
+                    validation = {'status': 'passed'}
+                except (ValueError, OSError) as error:
+                    validation = {'status': 'failed', 'reason': str(error).split(':', 1)[0] if isinstance(error, ValueError)
+                                  else 'candidate_source_unavailable'}
             return {"providers": capabilities(), "budget_scope": "mcp_tools_scope", "fusion_lease": "whole_attempt_serial",
                     "cad": cad_capabilities(self.config or {}),
                     "isolation": "trusted_internal_same_account", "configured": self.config is not None,
@@ -122,21 +148,49 @@ class ManagementService:
                     "configured_scoring_protocol":(self.config or {}).get('protocol'),
                     "configured_coordinate_mode":(self.config or {}).get('coordinate_mode'),
                     "supported_scoring_protocols":["fusion-step-adapted-v3.0","fusion-step-adapted-v4.0"],
+                    "candidate_profiles": sorted((self.config or {}).get('candidate_profiles', {})),
+                    "candidate_selection_modes": ['legacy_unprofiled', 'candidate_profile'],
+                    "capability_selection": {'skill_delivery': ['gateway_read'], 'exposure_mode': ['gateway_proxy'],
+                        'explicit_empty_skills': True, 'empty_mcp_requires': 'negative_control_no_cad'},
+                    "reasoning_controls": {'codex': 'effort', 'claude': 'effort', 'opencode': 'variant'},
+                    "candidate_selection": selected.get('candidate_selection') if selected else None,
+                    "configuration_validation": validation,
                     "credentials_returned": False, "preflight_calls_models_or_fusion": False}
         if name == "preflight":
             from .cad import cad_capabilities
             from .runner import validate_run_configuration
             validation = {'status': 'not_configured'}
+            selected = None
+            probes = []
             if self.config is not None:
                 try:
-                    validate_run_configuration(self.config)
+                    from .candidate_config import resolve_candidate_configuration
+                    selected = resolve_candidate_configuration(self.config)
+                    validate_run_configuration(selected)
                     validation = {'status': 'passed'}
-                except ValueError as error:
-                    validation = {'status': 'failed', 'reason': str(error)}
+                except (ValueError, OSError) as error:
+                    validation = {'status': 'failed', 'reason': str(error).split(':', 1)[0] if isinstance(error, ValueError)
+                                  else 'candidate_source_unavailable'}
+                if validation['status'] == 'passed':
+                    observed = probe(selected['provider'], selected.get('cli_executable'))
+                    probes = [{key: value for key, value in observed.items() if key != 'executable'}]
+                    if selected['reasoning']['mode'] == 'explicit':
+                        from .reasoning import resolve_reasoning
+                        try:
+                            if not observed.get('available') or not observed.get('version'):
+                                raise ValueError('reasoning_support_unverified')
+                            resolve_reasoning(dict(selected, cli_version=observed['version']), selected['reasoning_support'])
+                        except ValueError as error:
+                            validation = {'status': 'failed', 'reason': str(error).split(':', 1)[0]}
+                            if str(error) == 'reasoning_support_unverified':
+                                from .candidate_config import unverified_reasoning_request, public_candidate_selection
+                                selected['resolved_reasoning'] = unverified_reasoning_request(selected)
+                                selected['candidate_selection'] = public_candidate_selection(selected)
             return {"configured": self.config is not None,
                     "cad": cad_capabilities(self.config or {}),
                     'configuration_validation': validation,
-                    "providers": [probe(p, (self.config or {}).get(p)) for p in ("opencode", "codex", "claude")],
+                    "providers": probes,
+                    "candidate_selection": selected.get('candidate_selection') if selected else None,
                     "model_and_fusion_connectivity": "not_tested", "strict_gt_isolation": False}
         if name == "start_run":
             if self.config is None:
@@ -155,10 +209,12 @@ class ManagementService:
             selected_mode=config.get('coordinate_mode','geometry' if selected_protocol=='fusion-step-adapted-v4.0' else 'strict')
             if selected_mode not in ('geometry','strict') or selected_protocol!='fusion-step-adapted-v4.0' and selected_mode!='strict':
                 raise ValueError('coordinate_mode must be geometry/strict; historical protocols require strict')
-            provider = arguments.get("provider", config.get("provider", "opencode"))
+            from .candidate_config import resolve_candidate_configuration
+            config = resolve_candidate_configuration(config, arguments, require_reasoning_verified=True)
+            provider = config['provider']
             if provider not in ("opencode", "codex", "claude"):
                 raise ValueError("invalid provider")
-            model = arguments.get("model", config.get("models", {}).get(provider, config.get("model") if provider == config.get("provider", "opencode") else None))
+            model = config['model']
             if not isinstance(model, str) or not model.strip():
                 raise ValueError("explicit provider model required")
             cases = arguments.get("case_ids", config.get("case_ids"))
@@ -184,6 +240,7 @@ class ManagementService:
             config["cancel_file"] = str(folder / "cancel.request")
             atomic(folder / "config.json", config)
             atomic(folder / "job.json", {"run_id": identifier, "state": "starting", "provider": provider, "model": model,
+                                        'candidate_selection': config['candidate_selection'],
                                         'cad_backend': config['cad_backend'], 'cad_config_sha256': config['cad_config_sha256']})
             command = [config.get("python", sys.executable), "-B", "-m", "fusion_pipeline.cli", "_run-job", "--job", str(folder)]
             if preflight_only:
@@ -193,12 +250,16 @@ class ManagementService:
                 subprocess.Popen(command, cwd=Path(__file__).resolve().parents[1], stdin=subprocess.DEVNULL,
                                  stdout=log, stderr=subprocess.STDOUT, **options)
             return {"run_id": identifier, "state": "starting", "provider": provider, "model": model,
+                    'candidate_selection': config['candidate_selection'],
                     'cad_backend': config['cad_backend'], 'cad_config_sha256': config['cad_config_sha256']}
         folder = self._job(arguments["run_id"])
         if name == "cancel":
             (folder / "cancel.request").touch(exist_ok=True)
             return {"run_id": arguments["run_id"], "state": "cancellation_requested", "lease_released": False}
         status = json.loads((folder / "job.json").read_text(encoding="utf-8"))
+        from .candidate_config import project_candidate_evidence
+        if 'candidate_selection' in status:
+            status['candidate_selection'] = project_candidate_evidence(status['candidate_selection'])
         if status.get("run_path"):
             run_path = Path(status["run_path"])
             file = run_path / "pipeline-status.json"
@@ -206,10 +267,14 @@ class ManagementService:
                 current = json.loads(file.read_text(encoding="utf-8"))
                 from src.report_data import project_cad_provenance
                 status.update(project_cad_provenance(current))
+                if 'candidate_selection' in current:
+                    status['candidate_selection'] = project_candidate_evidence(current['candidate_selection'])
                 terminal_failure = status.get("state") in ("failed", "blocked")
                 status.update(state=status["state"] if terminal_failure else current["state"],
                               batch_complete=False if terminal_failure else current.get("batch_complete", False),
                               cases=[{**{k: r[k] for k in ("case_id", "state", "final_score") if k in r},
+                                      **({'candidate_selection': project_candidate_evidence(r['candidate_selection'])}
+                                         if 'candidate_selection' in r else {}),
                                       **project_cad_provenance(r)} for r in current.get("cases", [])])
             if name == "results":
                 if (run_path / "report.md").is_file():

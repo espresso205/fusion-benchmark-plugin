@@ -46,7 +46,7 @@ class CadOrchestrationTests(unittest.TestCase):
         self.assertFalse(result['cad']['cad_connection']['executed'])
 
     def test_strict_codex_is_rejected_before_run_creation(self):
-        with self.assertRaisesRegex(ValueError, 'strict|native tool'):
+        with self.assertRaisesRegex(ValueError, 'strict|native tool|candidate_isolation_unsupported'):
             self.trial(provider='codex', strict_tool_isolation=True)
         self.assertFalse(Path(self.config['runs_root']).exists())
 

@@ -1,0 +1,5 @@
+# Fusion required interface
+
+Use cad_tools to discover this backend's actual native schemas and cad_call with tool and arguments for all native work. The maintained Fusion tools are fusion_mcp_read, fusion_mcp_execute, fusion_mcp_update and fusion_mcp_electronics_read, intersected with actual discovery. Respect Fusion internal centimetre length units; use explicit unit strings or UnitsManager where supported and record conversions from task units. adsk runs inside Fusion, not the host Python interpreter.
+
+Export the owned native root-component archive to <workspace>/submission.f3d. Check export completion and file existence; preserve dependency evidence. Close only owned task documents, write_report with input/construction/failure evidence, then submit. Submission freezes the native document/report and revokes worker tools. The maintainer independently reopens and exports trusted STEP; candidate-created STEP is not trusted export evidence. Unknown native execution must stop CAD operations without retries or reconnecting.

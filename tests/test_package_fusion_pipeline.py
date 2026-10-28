@@ -30,7 +30,7 @@ class PackagePlanningTests(unittest.TestCase):
             'model': 'lanyi/gpt-6.1-sol', 'evaluator_zip': 'C:/old-location/archive.zip'
         }))
         (self.source / 'fusion_pipeline').mkdir()
-        for name in ('__init__.py', '__main__.py', 'runner.py', 'mcp.py', 'fusion_scripts.py', 'integration_smoke.py'):
+        for name in self.api.REQUIRED_PIPELINE_MODULES:
             (self.source / 'fusion_pipeline' / name).write_text('# public module\n')
         self.archive = self.root / 'frozen.zip'
         self.files = {name: ('# frozen ' + name).encode() for name in self.api.REQUIRED_EVALUATOR_FILES}
@@ -68,10 +68,8 @@ class PackagePlanningTests(unittest.TestCase):
     def test_extra_pipeline_python_module_is_not_packaged(self):
         (self.source / 'fusion_pipeline/local_config.py').write_text('PRIVATE_MODULE_MARKER = "do not distribute"')
         plan = self.api.prepare_bundle(self.source, self.archive)
-        self.assertEqual({name for name in plan['files'] if name.startswith('fusion_pipeline/')}, {
-            'fusion_pipeline/__init__.py', 'fusion_pipeline/__main__.py', 'fusion_pipeline/runner.py',
-            'fusion_pipeline/mcp.py', 'fusion_pipeline/fusion_scripts.py', 'fusion_pipeline/integration_smoke.py',
-        })
+        self.assertEqual({name for name in plan['files'] if name.startswith('fusion_pipeline/')},
+                         {'fusion_pipeline/' + name for name in self.api.REQUIRED_PIPELINE_MODULES})
         self.assertFalse(any(b'PRIVATE_MODULE_MARKER' in row['content'] for row in plan['files'].values()))
 
     def test_local_example_secrets_and_real_paths_are_replaced_with_public_template(self):

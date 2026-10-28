@@ -5,8 +5,32 @@ from pathlib import Path
 import sys
 
 
+def _capability_study(argv):
+    """Offline maintainer workflow, dispatched before importing the service."""
+    parser = argparse.ArgumentParser(description='Freeze or analyze an offline capability study')
+    commands = parser.add_subparsers(dest='action', required=True)
+    plan = commands.add_parser('plan', help='Freeze a study specification without starting CLI/CAD')
+    plan.add_argument('--spec', type=Path, required=True)
+    plan.add_argument('--output', type=Path, required=True)
+    analyze = commands.add_parser('analyze', help='Analyze saved run manifests against a frozen plan')
+    analyze.add_argument('--plan', type=Path, required=True)
+    analyze.add_argument('--runs', type=Path, nargs='+', required=True)
+    analyze.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args(argv)
+    from .capability_study import build_plan, analyze_plan
+    from src.io_utils import strict_json
+    if args.action == 'plan':
+        result = build_plan(strict_json(args.spec), args.output)
+    else:
+        result = analyze_plan(args.plan, args.runs, args.output)
+    print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
+    return 0
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ['capability-study']:
+        return _capability_study(argv[1:])
     if argv[:1] == ["ablation"]:
         # Offline analysis shares the evaluator CLI and needs no service/config.
         from analyze_ablation import main as analyze_ablation_main
@@ -20,6 +44,7 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("ablation", help="Analyze saved results without Fusion or configuration")
     commands.add_parser("report", help="Build a private HTML report from saved v4 results")
+    commands.add_parser('capability-study', help='Offline capability-study plan/analyze; no CLI or CAD calls')
     for name in ("serve", "doctor"):
         item = commands.add_parser(name)
         item.add_argument("--config", type=Path)

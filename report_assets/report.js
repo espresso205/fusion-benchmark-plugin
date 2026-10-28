@@ -325,11 +325,13 @@
     const state = document.getElementById('case-filter').value;
     const task = document.getElementById('task-filter').value;
     const sort = document.getElementById('case-sort').value;
+    const candidateFilters = ['profile', 'group', 'reasoning'].map(key => [key, document.getElementById(`${key}-filter`)?.value || 'all']);
     let count = 0;
     for (const card of cards) {
       const row = rows[Number(card.dataset.index)];
       const match = (!query || `${row.case} ${row.enterprise_id || ''} ${row.enterprise_title || row.title || ''} ${row.prompt || ''} ${row.status} ${card.textContent}`.toLocaleLowerCase().includes(query)) && (state === 'all' || state === card.dataset.state) && (task === 'all' || task === card.dataset.task);
-      card.hidden = !match; if (match) ++count;
+      const visible = match && candidateFilters.every(([key, value]) => value === 'all' || card.dataset[key] === value);
+      card.hidden = !visible; if (visible) ++count;
     }
     const ordered = [...cards].sort((a, b) => {
       const x = rows[Number(a.dataset.index)], y = rows[Number(b.dataset.index)];
@@ -466,6 +468,7 @@
   document.body.classList.add('js');
   document.getElementById('case-search').addEventListener('input', filterCases);
   ['case-filter', 'case-sort', 'task-filter'].forEach(id => document.getElementById(id).addEventListener('change', filterCases));
+  ['profile-filter', 'group-filter', 'reasoning-filter'].forEach(id => document.getElementById(id)?.addEventListener('change', filterCases));
   document.addEventListener('click', event => {
     const link = event.target.closest('[data-lightbox]');
     if (link && typeof lightbox.showModal === 'function') {

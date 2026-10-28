@@ -9,6 +9,231 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
+
+
+class CandidateEntryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.registry = self.root / 'registry.json'
+        self.registry.write_text(json.dumps({'schema': 'candidate-capability-registry/1',
+            'skills': {}, 'mcp_servers': {'cad_native': {'kind': 'builtin_cad_adapter'}}}))
+
+    def selection(self, **updates):
+        return dict(schema='candidate-capabilities/1', study_kind='capability_ablation',
+                    skill_delivery='gateway_read', exposure_mode='gateway_proxy',
+                    skills=[], mcp_servers=['cad_native'], **updates)
+
+    def config(self):
+        return dict(provider='claude', model='fixture', cli_executable=sys.executable,
+                    capability_registry=str(self.registry), fusion_skill='PRIVATE_LEGACY',
+                    runs_root=str(self.root / 'runs'), private_runs_root=str(self.root / 'private'))
+
+    def test_explicit_management_override_removes_legacy_without_mutating_and_is_idempotent(self):
+        from fusion_pipeline.candidate_config import resolve_candidate_configuration
+        config = self.config()
+        derived = resolve_candidate_configuration(config, {'candidate_capabilities': self.selection()})
+        self.assertNotIn('fusion_skill', derived)
+        self.assertEqual(derived['candidate_capability_selection']['skills'], [])
+        self.assertEqual(derived['legacy_skill_fields_removed_by_explicit_override'], ['fusion_skill'])
+        self.assertEqual(config['fusion_skill'], 'PRIVATE_LEGACY')
+        self.assertEqual(resolve_candidate_configuration(derived), derived)
+        with self.assertRaisesRegex(ValueError, 'legacy_skill_selection_conflict'):
+            resolve_candidate_configuration(dict(config, candidate_capabilities=self.selection()))
+
+    def test_profile_support_and_saved_reasoning_override_are_bound_and_idempotent(self):
+        from fusion_pipeline.candidate_config import resolve_candidate_configuration
+        profile = dict(provider='claude', model='profile-model', cli_executable=sys.executable,
+                       strict_tool_isolation=True, reasoning={'mode': 'cli_default'})
+        support = dict(provider='claude', model='profile-model', cli_version='fixture-1',
+                       status='verified', controls={'effort': ['high']}, evidence_sha256='0'*64)
+        config = dict(self.config(), candidate_profiles={'chosen': profile},
+                      candidate_reasoning_support={'chosen': support}, reasoning_support={'provider': 'other'})
+        derived = resolve_candidate_configuration(config, {'candidate_profile': 'chosen',
+                    'reasoning': {'mode': 'explicit', 'control': 'effort', 'value': 'high'}})
+        self.assertEqual(derived['reasoning_support'], support)
+        self.assertEqual(derived['resolved_reasoning']['native_parameters'], ['--effort', 'high'])
+        self.assertEqual(resolve_candidate_configuration(derived), derived)
+        self.assertIsNone(derived['candidate_selection']['observed_model_evidence'])
+        self.assertNotIn('PRIVATE_LEGACY', json.dumps(derived['candidate_selection']))
+
+    def test_invalid_selection_never_starts_process(self):
+        from fusion_pipeline.service import ManagementService
+        path = self.root / 'config.json'
+        path.write_text(json.dumps(self.config()))
+        with patch('subprocess.Popen') as launch:
+            with self.assertRaisesRegex(ValueError, 'cad_capability_required'):
+                ManagementService(path).call('start_run', {'candidate_capabilities':
+                    dict(self.selection(), mcp_servers=[])})
+            launch.assert_not_called()
+
+    def test_tools_list_uses_observation_hook_and_serve_closes_on_eof_and_failure(self):
+        from fusion_pipeline.service import dispatch, serve
+        class Service:
+            tools = []
+            closed = False
+            def list_tools(self):
+                return {'tools': [{'name': 'observed'}]}
+            def close(self):
+                self.closed = True
+        service = Service()
+        response = dispatch(service, {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'})
+        self.assertEqual(response['result'], {'tools': [{'name': 'observed'}]})
+        serve(service, io.BytesIO(), io.BytesIO())
+        self.assertTrue(service.closed)
+        service.closed = False
+        class Broken:
+            def __iter__(self):
+                raise RuntimeError('transport failure')
+        with self.assertRaisesRegex(RuntimeError, 'transport failure'):
+            serve(service, Broken(), io.BytesIO())
+        self.assertTrue(service.closed)
+
+    def test_preflight_only_probes_selected_profile_executable_and_strips_private_paths(self):
+        from fusion_pipeline.service import ManagementService
+        config = dict(self.config(), candidate_profile='chosen', candidate_profiles={'chosen': {
+            'provider': 'claude', 'model': 'chosen', 'cli_executable': sys.executable,
+            'strict_tool_isolation': True, 'reasoning': {'mode': 'cli_default'}}})
+        path = self.root / 'config.json'
+        path.write_text(json.dumps(config))
+        with patch('fusion_pipeline.adapters.probe', return_value={
+                'provider': 'claude', 'available': True, 'executable': 'PRIVATE_PATH', 'version': 'fixture'}) as probe:
+            result = ManagementService(path).call('preflight', {})
+        probe.assert_called_once_with('claude', str(Path(sys.executable).resolve()))
+        self.assertNotIn('PRIVATE_PATH', json.dumps(result))
+        self.assertEqual(result['candidate_selection']['requested_model'], 'chosen')
+
+    def test_switching_profiles_cannot_reuse_previous_reasoning_support_or_credentials(self):
+        from fusion_pipeline.candidate_config import resolve_candidate_configuration
+        profiles = {provider: dict(provider=provider, model=provider + '-model', cli_executable=sys.executable,
+            strict_tool_isolation=provider != 'codex', reasoning={'mode': 'cli_default'},
+            **({'native_tools_authorization': {'source': 'fixture', 'scope': 'fixture'}} if provider == 'codex' else {}))
+            for provider in ('claude', 'codex', 'opencode')}
+        profiles['claude']['credential_settings'] = str(self.root / 'never-read-auth.json')
+        config = dict(self.config(), candidate_profiles=profiles, candidate_reasoning_support={
+            provider: {'provider': provider, 'model': provider+'-model'} for provider in profiles})
+        for provider in profiles:
+            config = resolve_candidate_configuration(config, {'candidate_profile': provider})
+            self.assertEqual(config['provider'], provider)
+            self.assertEqual(config['reasoning_support']['provider'], provider)
+            self.assertEqual(config.get('credential_settings'), profiles[provider].get('credential_settings'))
+            self.assertEqual(resolve_candidate_configuration(config), config)
+
+    def test_unsupported_reasoning_rejected_without_probe_or_process(self):
+        from fusion_pipeline.service import ManagementService
+        config = dict(self.config(), reasoning_support=dict(provider='claude', model='fixture',
+            cli_version='fixture', status='verified', controls={'effort': ['low']}, evidence_sha256='0'*64))
+        path = self.root / 'config.json'
+        path.write_text(json.dumps(config))
+        with patch('subprocess.Popen') as launch, patch('fusion_pipeline.adapters.probe') as probe:
+            with self.assertRaisesRegex(ValueError, 'reasoning_unsupported'):
+                ManagementService(path).call('start_run', {'reasoning': {
+                    'mode': 'explicit', 'control': 'effort', 'value': 'high'}})
+        launch.assert_not_called()
+        probe.assert_not_called()
+
+    def test_valid_selection_is_saved_with_job_and_returned_by_status(self):
+        from fusion_pipeline.service import ManagementService
+        path = self.root / 'config.json'
+        path.write_text(json.dumps(self.config()))
+        service = ManagementService(path)
+        with patch('subprocess.Popen') as launch:
+            result = service.call('start_run', {'candidate_capabilities': self.selection()})
+        launch.assert_called_once()
+        derived = json.loads((self.root / 'runs/.service' / result['run_id'] / 'config.json').read_text())
+        self.assertNotIn('fusion_skill', derived)
+        self.assertEqual(result['candidate_selection']['capability_selection']['skills'], [])
+        status = service.call('status', {'run_id': result['run_id']})
+        self.assertEqual(status['candidate_selection'], result['candidate_selection'])
+        self.assertEqual(json.loads(path.read_text())['fusion_skill'], 'PRIVATE_LEGACY')
+
+    def test_capabilities_reports_static_selection_without_any_probe_or_process(self):
+        from fusion_pipeline.service import ManagementService
+        path = self.root / 'config.json'
+        config = self.config()
+        config.pop('fusion_skill')
+        config['candidate_capabilities'] = self.selection()
+        path.write_text(json.dumps(config))
+        with patch('subprocess.Popen') as launch, patch('fusion_pipeline.adapters.probe') as probe:
+            result = ManagementService(path).call('capabilities', {})
+        self.assertEqual(result['configuration_validation']['status'], 'passed')
+        self.assertEqual(result['candidate_selection']['capability_selection']['skills'], [])
+        launch.assert_not_called()
+        probe.assert_not_called()
+
+    def test_preflight_invalidates_reasoning_support_when_observed_cli_version_changes(self):
+        from fusion_pipeline.service import ManagementService
+        config = dict(self.config(), reasoning={'mode': 'explicit', 'control': 'effort', 'value': 'high'},
+            reasoning_support=dict(provider='claude', model='fixture', cli_version='old-version',
+                status='verified', controls={'effort': ['high']}, evidence_sha256='0'*64))
+        path = self.root / 'config.json'
+        path.write_text(json.dumps(config))
+        with patch('fusion_pipeline.adapters.probe', return_value={
+                'provider': 'claude', 'available': True, 'version': 'new-version'}):
+            result = ManagementService(path).call('preflight', {})
+        self.assertEqual(result['configuration_validation'],
+                         {'status': 'failed', 'reason': 'reasoning_support_unverified'})
+        self.assertEqual(result['candidate_selection']['requested_reasoning']['value'], 'high')
+        self.assertEqual(result['candidate_selection']['support_status'], 'not_verified')
+        self.assertIsNone(result['candidate_selection']['resolved_reasoning'])
+
+    def test_unverified_reasoning_remains_visible_statically_but_never_launches(self):
+        from fusion_pipeline.candidate_config import resolve_candidate_configuration
+        from fusion_pipeline.service import ManagementService
+        config = dict(self.config(), reasoning={'mode': 'explicit', 'control': 'effort', 'value': 'high'})
+        path = self.root / 'config.json'
+        path.write_text(json.dumps(config))
+        service = ManagementService(path)
+        with patch('subprocess.Popen') as launch:
+            capabilities = service.call('capabilities', {})
+            self.assertEqual(capabilities['candidate_selection']['support_status'], 'not_verified')
+            with self.assertRaisesRegex(ValueError, 'reasoning_support_unverified'):
+                service.call('start_run', {})
+        launch.assert_not_called()
+        self.assertFalse((self.root / 'runs').exists())
+        draft = resolve_candidate_configuration(config)
+        self.assertEqual(resolve_candidate_configuration(draft), draft)
+        with self.assertRaisesRegex(ValueError, 'reasoning_invalid'):
+            resolve_candidate_configuration(config, {'reasoning': {'mode': 'explicit'}})
+        with self.assertRaisesRegex(ValueError, 'reasoning_unsupported'):
+            resolve_candidate_configuration(config, {'reasoning': {
+                'mode': 'explicit', 'control': 'variant', 'value': 'high'}})
+        for malformed in ([], {'controls': []}, {'controls': {'effort': {'high': True}}}, {'model': []}):
+            with self.subTest(support=malformed), self.assertRaisesRegex(ValueError, 'reasoning_support_invalid'):
+                resolve_candidate_configuration(dict(config, reasoning_support=malformed))
+
+    def test_status_projects_runtime_candidate_evidence_without_private_fields(self):
+        from fusion_pipeline.service import ManagementService
+        path = self.root / 'config.json'
+        path.write_text(json.dumps(self.config()))
+        identifier = 'a'*32
+        job = self.root / 'runs/.service' / identifier
+        job.mkdir(parents=True)
+        run = self.root / 'runs/new-run'
+        run.mkdir()
+        (job / 'job.json').write_text(json.dumps(dict(run_id=identifier, state='running', run_path=str(run))))
+        (run / 'pipeline-status.json').write_text(json.dumps(dict(state='completed', cases=[], candidate_selection={
+            'candidate_profile_id': 'fixture', 'provider': 'claude',
+            'observed_model_evidence': {'model': 'observed-model', 'verified': True, 'credential_settings': 'PRIVATE_PATH'},
+            'observed_reasoning': {'control': 'effort', 'value': 'high', 'private_path': 'PRIVATE_PATH'},
+            'reasoning_verification_status': 'observed', 'cli_executable': 'PRIVATE_PATH',
+            'cli_version': 'fixture-1', 'exposure_verification_status': 'tools_list_recorded',
+            'observed_tool_surface': [{'name': 'read_skill', 'description': 'PRIVATE_PATH'}, 'aux_lookup__find'],
+            'actual_skill_reads': [{'id': 'guide', 'resource_id': None, 'sha256': '1'*64, 'path': 'PRIVATE_PATH'}],
+            'per_server_tool_calls': {'lookup': 2, 'PRIVATE_PATH': {'path': 'PRIVATE_PATH'}},
+            'cleanup_verified': True, 'emitted_reasoning_parameters': ['--effort', 'high'],
+            'reasoning_support_evidence': {'status': 'verified', 'source': 'PRIVATE_PATH', 'evidence_sha256': '0'*64}})))
+        result = ManagementService(path).call('status', {'run_id': identifier})
+        self.assertEqual(result['candidate_selection']['observed_model_evidence']['model'], 'observed-model')
+        self.assertEqual(result['candidate_selection']['observed_reasoning']['value'], 'high')
+        self.assertEqual(result['candidate_selection']['observed_tool_surface'], ['read_skill', 'aux_lookup__find'])
+        self.assertEqual(result['candidate_selection']['actual_skill_reads'][0]['id'], 'guide')
+        self.assertEqual(result['candidate_selection']['per_server_tool_calls'], {'lookup': 2})
+        self.assertEqual(result['candidate_selection']['emitted_reasoning_parameters'], ['--effort', 'high'])
+        self.assertTrue(result['candidate_selection']['cleanup_verified'])
+        self.assertNotIn('PRIVATE_PATH', json.dumps(result))
 
 
 class UnifiedServiceTests(unittest.TestCase):

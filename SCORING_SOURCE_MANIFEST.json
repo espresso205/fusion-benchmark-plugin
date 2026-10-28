@@ -172,10 +172,10 @@
       "source": "local v4 adaptation"
     },
     "fusion_pipeline/cli.py": {
-      "bytes": 5618,
-      "sha256": "50d42d1b30f991ac7998848ffb91a914c515511557f2ead6d8a4d40fc306c70a",
-      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged",
-      "previous_sha256": "3105d8334c0d7ab1386bc32828d77043427d7603e857dc4148d746a974e155e5"
+      "bytes": 7002,
+      "sha256": "ece76f11c2d656aa115916e7fff891bc3c80d66a77ba07c9bf57f767ee6d8a01",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt",
+      "previous_sha256": "50d42d1b30f991ac7998848ffb91a914c515511557f2ead6d8a4d40fc306c70a"
     },
     "fusion_pipeline/reporting.py": {
       "bytes": 7939,
@@ -184,16 +184,16 @@
       "previous_sha256": "026db803cddd645f5905510fc500127f5c1211c1f3fc05e99067c2e63b60357e"
     },
     "fusion_pipeline/runner.py": {
-      "bytes": 100360,
-      "sha256": "26963ea81cba1d0546e1e327d630a029cc86835c3ad0150c9fb76d3deadd5643",
-      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
-      "previous_sha256": "7e954a29c6e724cd73050316c69805fada4dc6b663f5acba4d90469ba8b9f6f4"
+      "bytes": 113370,
+      "sha256": "6747a4bd7d6f83d7b293b5a8ce10c421a6d4c6c07fe4c01f463ad03a693cc656",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt",
+      "previous_sha256": "26963ea81cba1d0546e1e327d630a029cc86835c3ad0150c9fb76d3deadd5643"
     },
     "fusion_pipeline/service.py": {
-      "bytes": 17191,
-      "sha256": "d2f31917ba5333027b3a907075fd49689a597293acd34367ab042c791cffefa9",
-      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged",
-      "previous_sha256": "bcc5c83f179127474e79406a1a84eaf0d12f18638d83a430431d79a019d6e4f7"
+      "bytes": 22145,
+      "sha256": "ba401d8c7c0c538b797b3e26a877beb45041a16256a45cb4ce7c63e0bbb38905",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt",
+      "previous_sha256": "d2f31917ba5333027b3a907075fd49689a597293acd34367ab042c791cffefa9"
     },
     "render_report.py": {
       "bytes": 1606,
@@ -223,10 +223,10 @@
       "previous_sha256": "d0585f2b16e1b51c82104533cc2a010f3372f91e45b4d4bfd8aba0464522658b"
     },
     "report_assets/report.js": {
-      "bytes": 32769,
-      "sha256": "b7f27ddbcec286288993e4214614188ae12edfa0870d1e9ca7471de980f58f17",
-      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
-      "previous_sha256": "daec50b97e0babf01288443f8a891d19f8da2873a886082ca61362844204351c"
+      "bytes": 33176,
+      "sha256": "0f968f2b27a5818034aa7f2445366b5dbb99c5d5bde873ed2bc5426501e9616e",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt",
+      "previous_sha256": "b7f27ddbcec286288993e4214614188ae12edfa0870d1e9ca7471de980f58f17"
     },
     "report_assets/vendor/three.module.js": {
       "bytes": 1272972,
@@ -273,16 +273,16 @@
       "previous_sha256": "5763a5f66257d37a89ba03c72ac65ffcd701bcb454703fa9ada4bc7ad663a594"
     },
     "src/html_reporting.py": {
-      "bytes": 46927,
-      "sha256": "db4a0c89f794ff686dbf13946f288c6b1f5866702f255ac34bce8ff5f6677be9",
-      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
-      "previous_sha256": "c9d629e966a54ca1c3a93983af2c0c8a9c060dab2c43df036dfe501caa9e5857"
+      "bytes": 50511,
+      "sha256": "fb46f344effdf9fadf86701b96ffd63d37d1ed4197b1e0bc489329eb2a0584f6",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt",
+      "previous_sha256": "db4a0c89f794ff686dbf13946f288c6b1f5866702f255ac34bce8ff5f6677be9"
     },
     "src/report_data.py": {
-      "bytes": 35308,
-      "sha256": "7e7c5bada81e4fb29e034195d0f5860356e4dd7ab9916b1bd2e17d910820250a",
-      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged",
-      "previous_sha256": "c01a078dd78673951f67ac1dcc966e3e40a577e34f8e41c26ad5d2504da578d6"
+      "bytes": 35925,
+      "sha256": "1d61888ad2a55d8c7a3c9cbae8130b2cc898a77c4771e01dfa728ae841d379c8",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt",
+      "previous_sha256": "7e7c5bada81e4fb29e034195d0f5860356e4dd7ab9916b1bd2e17d910820250a"
     },
     "src/report_inputs.py": {
       "bytes": 12699,
@@ -327,9 +327,10 @@
       "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
     },
     "fusion_pipeline/adapters.py": {
-      "bytes": 26809,
-      "sha256": "1a93b6b61a4f741c23de17ad8696b886b53732ddca0675e83c7b4841132c7cc2",
-      "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
+      "bytes": 38939,
+      "sha256": "aefce9e3a327802b4a30f0f9694b11ac30e802fe8f4a9b9af80b64732746645f",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt",
+      "previous_sha256": "1a93b6b61a4f741c23de17ad8696b886b53732ddca0675e83c7b4841132c7cc2"
     },
     "fusion_pipeline/cad.py": {
       "bytes": 9661,
@@ -370,16 +371,81 @@
       "source": "2026-10-27: optional Fusion/SolidWorks native adapter, guarded save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
     },
     "fusion_pipeline/worker_gateway.py": {
-      "bytes": 55309,
-      "sha256": "a5bfa125bae818e2dd87cf38d579ce13a34c1904fa8b004b2ec1f6ef8fa5c216",
-      "source": "2026-10-28 reviewed source update: comparison-first report, deterministic inspection state, distinct high-resolution overlays and surface differences, guarded CAD completion classification; scoring algorithms and weights unchanged; portable package not rebuilt",
-      "previous_sha256": "b15b5aba13abe99663ff7135e4713bbb8578a093e9ab0ecc914b0618d9ea1332"
+      "bytes": 66446,
+      "sha256": "3e801df35db9eb9c4bd2d3fbc0d8b64b9f39197dda6d8009c078d874137d2ed9",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt",
+      "previous_sha256": "a5bfa125bae818e2dd87cf38d579ce13a34c1904fa8b004b2ec1f6ef8fa5c216"
     },
     "fusion_pipeline/mcp.py": {
       "bytes": 6121,
       "sha256": "05f42f9a692521c57f57a70c0d2bc4d50833ebd1b4a8fe8f1dbb30452998d8de",
       "previous_sha256": "773b62f7d970687b85851d46f9a773869ccde54a4064bad755c4a4bc4248c851",
       "source": "2026-10-27 final reviewed multi-CAD freeze: preserve unknown outcomes across Fusion/SolidWorks transport, guarded native save/freeze and trusted STEP provenance; scoring algorithms and weights unchanged"
+    },
+    "agent/common-protocol/FUSION.md": {
+      "bytes": 1037,
+      "sha256": "3cb13dfa234cbe75057f9d17ce2646e2aefa53a99257f735e856ddcc757249d5",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "agent/common-protocol/PROTOCOL.md": {
+      "bytes": 1597,
+      "sha256": "96c20e616d4de91738dace60b7658dead0720e208315cb19e8e0812783dac52c",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "agent/common-protocol/SOLIDWORKS.md": {
+      "bytes": 3278,
+      "sha256": "e746869238b00fdf261b08177d45511f17eac15eab04f39899cdf18818813d16",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "agent/fusion-guidance/SKILL.md": {
+      "bytes": 761,
+      "sha256": "b430aa358fc1e9232236cb8cf7d27138bb56db3122912f0c28a6a8f4d8938763",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "agent/solidworks-guidance/SKILL.md": {
+      "bytes": 806,
+      "sha256": "9ade6be09b617368aaf3b02b232a6f86607f2857da7dff68269e87f3fc1638aa",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "fusion_pipeline/candidate_config.py": {
+      "bytes": 11895,
+      "sha256": "10ae0811b4b96275131c0f8e5762251a253131fdb4c8f0c049dc33f1ac4c20fd",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "fusion_pipeline/candidate_prompt.py": {
+      "bytes": 1940,
+      "sha256": "5ed5025ce873164cbb7c79179ec88a550d5d538684efee6f7395c65b2ed85d7d",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "fusion_pipeline/candidate_runtime.py": {
+      "bytes": 18133,
+      "sha256": "48912f001e57bff1596e551c9a9e093f26d9d32b96abedfdd294ebeee886e0e6",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "fusion_pipeline/capability_study.py": {
+      "bytes": 50760,
+      "sha256": "fb86b25fa6736cea51324528bf0f0786c4ccea44ab683596a37d980a82656b5c",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "fusion_pipeline/aux_mcp.py": {
+      "bytes": 23591,
+      "sha256": "2d545eadb5c8e9e645c93034a32b70e2e331ab0ab35eb8361b02a28f0ad68417",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "fusion_pipeline/candidate_profiles.py": {
+      "bytes": 9524,
+      "sha256": "bc3e8a930369381049e0b74a9070c4347004e228b2e5b47ea082fe00f3b478a8",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "fusion_pipeline/capabilities.py": {
+      "bytes": 27072,
+      "sha256": "d6b597f32ea7c0b68d3db0f6e29e0fd02d7cf50acedee76c96f562f9f0405f55",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
+    },
+    "fusion_pipeline/reasoning.py": {
+      "bytes": 7200,
+      "sha256": "13e9fa05048a5df76ec55561f2ee1dfb6d167a017ed6c636c85a07aeaca0750e",
+      "source": "2026-10-28 reviewed candidate profile/reasoning/capability workflow, controlled auxiliary MCP, frozen study and report selection update; scoring algorithms, weights and legacy skills unchanged; portable release not rebuilt"
     }
   },
   "html_report_revision": "2026-10-27: four-view comparisons, material/interface overlays, CADViewer inspection and verified downloads; scoring unchanged",

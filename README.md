@@ -8,6 +8,7 @@
 - [安装、连接与运行](docs/PORTABLE_PLUGIN_USAGE.md)
 - [v4 评分合同](docs/SCORING_V4.md)；[历史 v3](docs/SCORING_V3.md)
 - [已有结果的指标消融分析](docs/ABLATION.md)
+- [候选 CLI 档案、推理强度与 skills/MCP 选择](docs/CANDIDATE_CAPABILITIES.md) · [离线能力实验计划与分析](docs/CAPABILITY_STUDY.md)
 - [HTML 结果报告与三维对比](docs/HTML_REPORT.md)
 - [PNG/JPEG、多图与混合建模输入](docs/INPUT_FORMATS.md)：显式清单、冻结哈希和原生 MCP 图片；旧 TASK/DXF 目录继续支持。
 - [Fusion / SolidWorks 后端配置与验收边界](docs/CAD_BACKENDS.md)：统一 Gateway、版本化原生合同与维护端可信导出。
@@ -41,6 +42,17 @@ python -B fusion-benchmark-bootstrap.py ablation --input C:/benchmark/private/ru
 ```
 
 完整便携包用 `fusion-benchmark.cmd ablation` 传入相同参数。分析输出到新目录，保留正式评分和测量缺失语义；分析排名不赋予正式排名资格。多来源、系统比较和输出字段见[分析说明](docs/ABLATION.md)。
+
+能力实验使用单独的离线入口；生成计划与分析都不启动模型、CAD 或辅助 MCP：
+
+```powershell
+python -B fusion-benchmark-bootstrap.py capability-study plan --spec C:/benchmark/local/study-spec.json --output C:/benchmark/private/study-plan-new
+python -B fusion-benchmark-bootstrap.py capability-study analyze --plan C:/benchmark/private/study-plan-new/experiment-plan.json --runs C:/benchmark/private/run-a/capability-run.json C:/benchmark/private/run-b/capability-run.json --output C:/benchmark/private/study-analysis-new
+```
+
+`--spec` 的字段和可移植运行清单见[能力实验说明](docs/CAPABILITY_STUDY.md)。档案模板覆盖 Claude、Codex、OpenCode，见 [candidate-profiles.template.json](examples/candidate-profiles.template.json)；能力注册表起点见 [candidate-capabilities.template.json](examples/candidate-capabilities.template.json)。复制到维护端私有目录后填写本机路径、模型与授权引用；模板使用 `cli_default`，显式 effort/variant 需要匹配当前 CLI、模型和版本的支持证据。配置支持、已发出原生参数、实际连接、实际回显和完整建模分别留证。
+
+计划冻结 profile × 能力组 × 题目 × 重复，真实执行继续遵守串行 CAD 桌面租约；分析输出 `capability-analysis.json/.csv/.md`，保留全部计划分母、缺失正式分数和全部尝试。同 profile 的单因素比较与跨 profile 的系统设置比较分开。生成这些离线文件本身不能证明 skills/MCP 提升建模分数。HTML 报告在对比图之后显示公开候选证据，多档案/组/推理设置时提供筛选；历史记录缺字段时显示“历史运行，未记录能力选择”。
 
 v4 流水线自动在维护端 `private_runs_root/<run>/html-report/index.html` 生成 HTML，保留全部题目，并以左侧生成模型、右侧标准答案展示差异、分数和评测分析。已有评分可用 `python -B render_report.py --input <最终结果目录> --output <新报告目录>` 重建；`--analysis <ablation.json>` 加入已有分析，`--no-mesh` 仅生成分数与分析页面。也可通过 `fusion-benchmark.cmd report` 使用相同参数。直接打开 HTML 可离线阅读，`python -B serve_report.py --root <报告目录> --open` 启动本机三维对比。完整流水线重建、单题报告和私有目录约定见 [HTML 说明](docs/HTML_REPORT.md)。
 
