@@ -230,6 +230,9 @@ def main():
     selector = argparse.ArgumentParser(add_help=False)
     selector.add_argument('--protocol', default='fusion-step-adapted-v4.0')
     selected, _ = selector.parse_known_args()
+    if selected.protocol == 'fusion-step-adapted-v5.0':
+        from evaluate_v5 import main as main_v5
+        return main_v5()
     if selected.protocol == 'fusion-step-adapted-v4.0':
         from evaluate_v4 import main as main_v4
         return main_v4()

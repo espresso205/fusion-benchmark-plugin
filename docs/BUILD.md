@@ -1,11 +1,11 @@
 # 构建与检查
 
-版本为 v4.0.0。完整便携包面向 Windows x64 / CPython 3.12；源码仓库本身不带运行时。
+版本为 v5.0.0-assembly.1。完整便携包面向 Windows x64 / CPython 3.12；源码仓库本身不带运行时。默认评分仍为 v4，v5 需要明确选择。
 
 在专用构建环境安装[锁定依赖](../requirements-portable-plugin.lock.txt)，从仓库根执行：
 
 ```powershell
-python -B scripts/build_portable_plugin.py --python (Get-Command python).Source --output ../build-output/fusion-benchmark-plugin-v4.0.0 --zip
+python -B scripts/build_portable_plugin.py --python (Get-Command python).Source --output ../build-output/fusion-benchmark-plugin-v5.0.0-assembly.1 --zip
 ```
 
 输出必须是尚不存在的新目录。构建器核对依赖版本及安装 RECORD 哈希，按明确白名单收集源码、标准库和依赖文件，不复制整个虚拟环境。它包含发布文档、通用建模技能、示例配置和版本文件。评分算法文件不在构建中改写。
@@ -19,7 +19,7 @@ HTML 报告的两个命令入口、九个 `src/` 模块和九个 `report_assets/
 若构建用的 Python `ssl.py` 引用了相邻的 `codex-rejected-cas.pem`，构建器必须从同一运行时保留该文件原字节；缺失时明确失败，不改写 SSL 模块或关闭证书验证。移位验收同时创建启用主机名与证书验证的 SSL context，并创建 urllib HTTP opener，防止依赖导入通过但本地 Fusion HTTP 握手尚未发送就失败。
 
 ```powershell
-python -B scripts/build_portable_plugin.py --verify ../build-output/fusion-benchmark-plugin-v4.0.0
+python -B scripts/build_portable_plugin.py --verify ../build-output/fusion-benchmark-plugin-v5.0.0-assembly.1
 ```
 
 发布前把整个便携目录搬到另一条含中文和空格的路径，从包外运行 `fusion-benchmark.cmd doctor`、MCP `initialize/tools/list` 与合成几何评测，并校验完整文件集。干净机器验收和真实 Fusion/模型运行需要独立记录。
@@ -27,6 +27,8 @@ python -B scripts/build_portable_plugin.py --verify ../build-output/fusion-bench
 HTML 验收包括直接打开 `index.html` 阅读静态内容、用包内 Python 启动 `serve_report.py --root <报告目录> --open` 检查三维对比，以及用 `fusion-benchmark.cmd report --input <最终结果目录> --output <新报告目录> --no-mesh` 离线重建。确认生成模型在左、标准答案在右；整批报告保留未提交或导出失败的题目，并且只保存在维护端私有目录。命令说明见 [HTML 报告](HTML_REPORT.md)。
 
 `scripts/package_fusion_pipeline.py` 保留旧冻结 ZIP 叠加打包能力，只用于历史 v2 分发复现。它不是 v4.0.0 的推荐构建入口，也不会自动生成新版便携运行时。
+
+v5 可逆更新工具位于 `scripts/assembly_update/`，针对指定旧安装生成内容指纹绑定的更新包。完整包不依赖此工具安装。更新包必须与指定基线配套，不能跨版本强行覆盖；详见该目录的[安装与恢复](../scripts/assembly_update/安装与恢复.md)。
 
 两条实际打包白名单均包含候选能力模块 `capabilities/candidate_profiles/reasoning/candidate_config/candidate_prompt/aux_mcp/capability_study/candidate_runtime`，公共 `agent/common-protocol/` 三份协议、Fusion/SolidWorks 可选 guidance、能力选择与实验说明以及两个占位 JSON 模板。运行端还需把这些模块及协议资源纳入源码身份和运行快照闭包；只修改打包清单不能代替运行快照核验。维护端实际档案、注册表、认证配置、私有输入和运行输出不进入白名单。分发前仅编辑维护端副本，仓库中的模板应保持公开占位内容。
 

@@ -1,0 +1,24 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"Fusion STEP v5 case aggregate",
+  "type":"object",
+  "required":["schema_version","protocol_id","case","candidate_basic","candidate_assembly","reference_preflight","metrics","final_score","partial_lower_bound","measurement_weight_coverage","ranking_eligible"],
+  "properties":{
+    "schema_version":{"const":"5.0"},
+    "protocol_id":{"const":"fusion-step-adapted-v5.0"},
+    "case":{"type":"string"},
+    "coordinate_mode":{"enum":["geometry","strict"]},
+    "candidate_basic":{"$ref":"#/$defs/stage"},
+    "candidate_assembly":{"$ref":"#/$defs/stage"},
+    "reference_preflight":{"$ref":"#/$defs/stage"},
+    "final_score":{"type":["number","null"],"minimum":0,"maximum":1},
+    "partial_lower_bound":{"type":["number","null"],"minimum":0,"maximum":1},
+    "measurement_weight_coverage":{"type":"number","minimum":0,"maximum":1},
+    "ranking_eligible":{"const":false},
+    "metrics":{"type":"object","required":["shape","dimension","mass"],"additionalProperties":{"$ref":"#/$defs/measurement"}}
+  },
+  "$defs":{
+    "stage":{"type":"object","required":["status"],"properties":{"status":{"enum":["pass","fail","error","timeout","partial","not_run"]}}},
+    "measurement":{"allOf":[{"$ref":"#/$defs/stage"},{"type":"object","required":["measured_score"],"properties":{"measured_score":{"type":["number","null"],"minimum":0,"maximum":1}}}]}
+  }
+}

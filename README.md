@@ -1,12 +1,15 @@
 # Fusion Benchmark Plugin
 
-版本 **v4.0.0**。为 OpenCode、Codex、Claude Code 提供统一 MCP 管理入口：每题启动独立 CLI 会话，选择 Fusion 或 SolidWorks 建模，冻结原生文件，再由维护端独立重开、导出可信 STEP，执行 v4 几何符合评分并单列坐标诊断。Fusion 提交 F3D；SolidWorks 提交自包含 SLDPRT 与明确配置，不支持装配文件。
+版本 **v5.0.0-assembly.1**。为 OpenCode、Codex、Claude Code 提供统一 MCP 管理入口：每题启动独立 CLI 会话，选择 Fusion 或 SolidWorks 建模，冻结原生文件，再由维护端独立重开、导出可信 STEP。默认仍使用 v4；明确选择 v5 后，基础几何、装配检查、参考验收与相似度分开记录，单项超时不再阻止其他可执行测量。Fusion 提交 F3D；SolidWorks 提交自包含 SLDPRT 与明确配置，不支持装配文件。
+
+**[v5 与 v4 的差异及使用方法](docs/V5_V4_COMPARISON.md)** · **[v5 发布说明](docs/RELEASE_V5.md)**。v5 的几何高分不等于装配合格；参考未验收时保留诊断测量，不发布正式总分。此次插件更新不包含或认证任何题库 GT。
 
 本仓库包含完整流水线、评测核心、测试、技能说明和便携包构建脚本。源码仓库不包含 Python 运行时、Fusion、CLI 可执行文件、模型账号或题目数据。
 
 - [架构与边界](docs/ARCHITECTURE.md)
 - [安装、连接与运行](docs/PORTABLE_PLUGIN_USAGE.md)
 - [v4 评分合同](docs/SCORING_V4.md)；[历史 v3](docs/SCORING_V3.md)
+- [v5 独立装配检查、参考验收和阶段超时](docs/SCORING_V5.md)
 - [已有结果的指标消融分析](docs/ABLATION.md)
 - [候选 CLI 档案、推理强度与 skills/MCP 选择](docs/CANDIDATE_CAPABILITIES.md) · [离线能力实验计划与分析](docs/CAPABILITY_STUDY.md)
 - [HTML 结果报告与三维对比](docs/HTML_REPORT.md)
@@ -67,4 +70,4 @@ node --test tests/fusion_guard.test.mjs
 
 第二条只验证旧 OpenCode guard，Node 不属于 Python 评分运行依赖。三个可选历史回归测试需要另行提供资产，默认跳过。依赖检查、MCP 发现与合成几何测试不代表真实模型/Fusion 执行已经完成。
 
-`SCORING_SOURCE_MANIFEST.json` 记录发布时评分核心文件的 SHA256。v4 主分只含 shape/dimension/mass 的固定权重，诊断项不计分，缺失测量以明确的政策下界计分，排名资格保持关闭。新 CLI 会话隔离聊天上下文；同一操作系统账号并不隔离私有 GT 的文件权限。
+`SCORING_SOURCE_MANIFEST.json` 记录发布时评分核心和管理代码的 SHA256，旧版清单保留在 `SCORING_SOURCE_MANIFEST_V4.json`。v4 的缺项下界规则保持原义；v5 缺项时总分为空，下界独立显示且不计入完整成绩均分。两版排名资格均保持关闭。新 CLI 会话隔离聊天上下文；同一操作系统账号并不隔离私有 GT 的文件权限。

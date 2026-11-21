@@ -45,8 +45,8 @@ def validate_run_configuration(config):
     if config.get('strict_tool_isolation') and not capabilities()[provider]['native_tools_disabled']:
         raise ValueError('provider does not support strict native tool exclusion')
     protocol = config.get('protocol', 'fusion-step-adapted-v4.0')
-    mode = config.get('coordinate_mode', 'geometry' if protocol == 'fusion-step-adapted-v4.0' else 'strict')
-    if protocol not in ('fusion-step-adapted-v2.0', 'fusion-step-adapted-v3.0', 'fusion-step-adapted-v4.0') or mode not in ('geometry', 'strict') or (protocol != 'fusion-step-adapted-v4.0' and mode != 'strict'):
+    mode = config.get('coordinate_mode', 'geometry' if protocol in ('fusion-step-adapted-v4.0','fusion-step-adapted-v5.0') else 'strict')
+    if protocol not in ('fusion-step-adapted-v2.0', 'fusion-step-adapted-v3.0', 'fusion-step-adapted-v4.0', 'fusion-step-adapted-v5.0') or mode not in ('geometry', 'strict') or (protocol not in ('fusion-step-adapted-v4.0','fusion-step-adapted-v5.0') and mode != 'strict'):
         raise ValueError('unsupported scoring protocol or coordinate mode')
     capability = cad_capabilities(config)
     if backend == 'solidworks' and not negative_control(config) and not capability.get('dependency_discovered'):
@@ -178,7 +178,7 @@ def extract_evaluator(archive, destination):
 def snapshot_evaluator(source, destination):
     """Freeze only evaluator source, never sibling reports, GT or credentials."""
     source, destination = Path(source).resolve(), Path(destination).resolve()
-    names = {name for name in ("evaluate.py", "evaluate_v4.py", "worker.py", "worker_v4.py", "bootstrap.py", "scheduler.py", "weights.json", "weights_v3.json", "weights_v4.json", "render_report.py", "serve_report.py")
+    names = {name for name in ("evaluate.py", "evaluate_v4.py", "evaluate_v5.py", "worker.py", "worker_v4.py", "worker_v5.py", "weights_v5.json", "bootstrap.py", "scheduler.py", "weights.json", "weights_v3.json", "weights_v4.json", "render_report.py", "serve_report.py")
              if (source / name).is_file()}
     for name in ("report_assets/report.css", "report_assets/report.js", "report_assets/VIEWER_SOURCES.json",
                   "fusion_pipeline/__init__.py", "fusion_pipeline/input_assets.py", "fusion_pipeline/native_contract.py",
@@ -256,7 +256,8 @@ def source_hashes():
             for folder in (BASE / "fusion_pipeline", BASE / "plugins")
             for p in folder.rglob("*") if p.is_file() and p.suffix in {".py", ".mjs"}
             and "__pycache__" not in p.parts}
-    for name in ("src/__init__.py", "src/io_utils.py", "agent/fusion-modeling/SKILL.md", "agent/solidworks-modeling/SKILL.md",
+    for name in ("src/__init__.py", "src/io_utils.py", "src/contract.py", "src/contract_v5.py",
+                 "src/stages_v5.py", "evaluate_v5.py", "agent/fusion-modeling/SKILL.md", "agent/solidworks-modeling/SKILL.md",
                  "agent/common-protocol/PROTOCOL.md", "agent/common-protocol/FUSION.md", "agent/common-protocol/SOLIDWORKS.md",
                  "agent/fusion-guidance/SKILL.md", "agent/solidworks-guidance/SKILL.md"):
         if (BASE / name).is_file():
@@ -293,11 +294,11 @@ def scoring_options(config, evaluator):
                'fusion-step-adapted-v3.0' if (evaluator/'weights_v3.json').is_file() else 'fusion-step-adapted-v2.0')
     protocol = config.get('protocol', default)
     files = {'fusion-step-adapted-v2.0':'weights.json', 'fusion-step-adapted-v3.0':'weights_v3.json',
-             'fusion-step-adapted-v4.0':'weights_v4.json'}
+             'fusion-step-adapted-v4.0':'weights_v4.json','fusion-step-adapted-v5.0':'weights_v5.json'}
     if protocol not in files:
         raise ValueError('unsupported scoring protocol')
-    mode = config.get('coordinate_mode', 'geometry' if protocol=='fusion-step-adapted-v4.0' else 'strict')
-    if mode not in ('geometry','strict') or protocol!='fusion-step-adapted-v4.0' and mode!='strict':
+    mode = config.get('coordinate_mode', 'geometry' if protocol in ('fusion-step-adapted-v4.0','fusion-step-adapted-v5.0') else 'strict')
+    if mode not in ('geometry','strict') or protocol not in ('fusion-step-adapted-v4.0','fusion-step-adapted-v5.0') and mode!='strict':
         raise ValueError('coordinate_mode must be geometry/strict; historical protocols require strict')
     weights = evaluator/files[protocol]
     if not weights.is_file():
@@ -307,6 +308,9 @@ def scoring_options(config, evaluator):
 
 def validate_evaluation(output, cases_path, returncode, weights_sha256, *, protocol=None, coordinate_mode=None):
     """Accept only a complete, consistent publication from the unchanged evaluator."""
+    if protocol == "fusion-step-adapted-v5.0" or strict_json(Path(output)/"manifest.json").get("protocol_id") == "fusion-step-adapted-v5.0":
+        from .v5_validation import validate_publication
+        return validate_publication(output, cases_path, returncode, weights_sha256, protocol=protocol, coordinate_mode=coordinate_mode)
     if returncode not in (0, 2):
         raise RuntimeError(f"packaged evaluator exit code {returncode}; output is incomplete")
     output = Path(output)
@@ -639,7 +643,7 @@ class Trial:
             if strict_json(row["annotations"])["gt_sha256"] != row["expected_hashes"]["gt"]:
                 raise ValueError("annotation GT binding mismatch")
         atomic(self.private / "reference_registry.json", {"cases": list(self.references.values())})
-        if protocol != 'fusion-step-adapted-v4.0' and (self.evaluator / "weights_v3.json").exists():
+        if protocol not in ('fusion-step-adapted-v4.0','fusion-step-adapted-v5.0') and (self.evaluator / "weights_v3.json").exists():
             from src.robust_metrics import build_section_plan
             plans = {case: build_section_plan(ref['gt'], strict_json(ref['annotations']))
                      for case, ref in self.references.items()}
@@ -1427,7 +1431,12 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
             for role in ("gt", "annotations"):
                 if sha(ref[role]) != ref["expected_hashes"][role]:
                     raise ValueError("private reference changed during modeling; reject evaluation")
-            cases.append({"case": row["case_id"], "candidate": row["trusted_step"], "gt": ref["gt"],
+            acceptance = {}
+            if ref.get("reference_acceptance"):
+                acceptance = {"reference_acceptance":ref["reference_acceptance"], "reference_acceptance_sha256":ref["reference_acceptance_sha256"]}
+                if sha(acceptance["reference_acceptance"]) != acceptance["reference_acceptance_sha256"]:
+                    raise ValueError("reference acceptance changed during modeling")
+            cases.append({**acceptance, "case": row["case_id"], "candidate": row["trusted_step"], "gt": ref["gt"],
                           "annotations": ref["annotations"], "expected_hashes": {
                               "candidate": row["trusted_step_sha256"], "gt": ref["expected_hashes"]["gt"],
                               "annotations": ref["expected_hashes"]["annotations"]}})
@@ -1447,7 +1456,7 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
         protocol, coordinate_mode, weights_file = scoring_options(self.config, self.evaluator)
         command = [self.config["python"], '-X', 'utf8', '-B', str(self.evaluator / "evaluate.py"), "--cases", str(manifest),
                    "--output", str(output), "--workers", "1", "--timeout", "600", "--protocol", protocol]
-        if protocol == 'fusion-step-adapted-v4.0':
+        if protocol in ('fusion-step-adapted-v4.0','fusion-step-adapted-v5.0'):
             command += ['--coordinate-mode', coordinate_mode]
         with (self.private / "evaluation.log").open("x", encoding="utf-8") as log:
             env = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUTF8='1')
@@ -1482,7 +1491,9 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
                        pose={'status':scored.get('pose',{}).get('status')},
                        evaluation_execution=scored.get('execution'),
                        measurement_weight_coverage=scored.get('measurement_weight_coverage'),
-                       diagnostic_unavailable_metrics=scored.get('diagnostic_unavailable_metrics'))
+                       diagnostic_unavailable_metrics=scored.get('diagnostic_unavailable_metrics'),
+                       candidate_basic=scored.get('candidate_basic'), candidate_assembly=scored.get('candidate_assembly'),
+                       reference_preflight=scored.get('reference_preflight'), partial_lower_bound=scored.get('partial_lower_bound'))
         self.save()
 
     def report(self):
@@ -1497,6 +1508,10 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
             elapsed = row.get("execution", {}).get("elapsed_s")
             lines.append(f"|{row['case_id']}|{row['state']}|{elapsed:.1f}|{row.get('evaluation_status', '未评分')}|{score_text}|" if elapsed is not None
                          else f"|{row['case_id']}|{row['state']}|—|未评分|—|")
+        if self.state.get("scoring_protocol") == "fusion-step-adapted-v5.0":
+            lines.extend(["", "v5：几何相似度与装配是否合格分别报告。参考未验收或主项未算齐时总分为空；已测贡献下界单列，不进入完整均分。", "", "|题目|基础几何|装配检查|参考验收|实测覆盖|已测贡献下界|", "|---|---|---|---|---|---|"])
+            for row in self.state["cases"]:
+                lines.append("|"+row["case_id"]+"|"+"|".join(str((row.get(k) or {}).get("status","not_run")) for k in ("candidate_basic","candidate_assembly","reference_preflight"))+"|"+str(row.get("measurement_weight_coverage"))+"|"+str(row.get("partial_lower_bound"))+"|")
         is_v3 = self.state.get('scoring_protocol') in ('fusion-step-adapted-v3.0','fusion-step-adapted-v4.0')
         if self.state.get('scoring_protocol') == 'fusion-step-adapted-v4.0':
             lines.extend(['', 'v4 坐标模式：' + self.state.get('coordinate_mode','unknown') + '；shape/dimension/mass 计分，其他指标与坐标偏差单列诊断。', '',
@@ -1507,7 +1522,7 @@ write_report记录实际模型、尺寸/单位、实体/特征、假设、简化
                 lines.append('|'+row['case_id']+'|'+coverage_text+'|'+str((row.get('pose') or {}).get('status','未测得'))
                              +'|'+(', '.join(row.get('diagnostic_unavailable_metrics') or []) or '无')
                              +'|'+str((row.get('evaluation_execution') or {}).get('status','未执行'))+'|')
-        lines.extend(["", "所有题逐行保留；validation通过的产物全部参与相应协议的固定权重评分，缺失正式计分测量明确列为未测得并保守计分。" if is_v3 else "所有题逐行保留；v2测量阻断仍保留无分终态。",
+        lines.extend(["", "所有题逐行保留；validation通过的产物全部参与相应协议的固定权重评分，缺失正式计分测量明确列为未测得并保守计分。" if is_v3 else "所有题逐行保留；v5只对参考已验收且主项齐全的题发布完整几何分数。" if self.state.get("scoring_protocol")=="fusion-step-adapted-v5.0" else "所有题逐行保留；v2测量阻断仍保留无分终态。",
                       "均分和参与数量以私有评测summary.json为准；批次完成与完整实测覆盖分别报告。", "",
                       "完整运行证据：pipeline-status.json、runner-events.jsonl、audit/、ledger/、trusted_export/。",
                       "私有评测目录含 GT/标注快照，只由评测维护端访问。"])

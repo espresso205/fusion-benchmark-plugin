@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 V4_PROTOCOL = 'fusion-step-adapted-v4.0'
+V5_PROTOCOL = 'fusion-step-adapted-v5.0'
 GENERATION_FILE = 'html-report-generation.json'
 SAFE_FAILURE = 'HTML report generation failed; completed scoring results are unchanged.'
 
@@ -88,7 +89,14 @@ def report_references(private_root):
     """Return only existing private artifacts, never paths from saved JSON."""
     root = Path(private_root)
     files = {}
-    index = _inside_file(root, 'html-report/index.html')
+    summary_path = _inside_file(root, 'evaluation/summary.json')
+    is_v5 = False
+    if summary_path:
+        try:
+            is_v5 = json.loads(summary_path.read_text(encoding='utf-8')).get('protocol_id') == V5_PROTOCOL
+        except (OSError, ValueError, AttributeError):
+            pass
+    index = _inside_file(root, 'evaluation/report.html' if is_v5 else 'html-report/index.html')
     status_path = _inside_file(root, GENERATION_FILE)
     if index:
         files['html'] = str(index)
@@ -115,7 +123,7 @@ def build_private_report(private_root, pipeline, *, config=None, timeout=10.0, i
     """Generate from all requested cases; ordinary failures never escape."""
     config = config or {}
     protocol = pipeline.get('scoring_protocol') or config.get('protocol', V4_PROTOCOL)
-    if protocol != V4_PROTOCOL:
+    if protocol not in (V4_PROTOCOL, V5_PROTOCOL):
         return {'status': 'not_applicable'}
     root = Path(private_root).resolve()
     # A misconfigured maintainer root must not publish GT in a candidate folder.
@@ -126,6 +134,21 @@ def build_private_report(private_root, pipeline, *, config=None, timeout=10.0, i
                 return {'status': 'failed', 'error': SAFE_FAILURE}
     result = {'status': 'failed', 'error': SAFE_FAILURE}
     try:
+        if protocol == V5_PROTOCOL:
+            index = _inside_file(root, 'evaluation/report.html')
+            summary_path = _inside_file(root, 'evaluation/summary.json')
+            if index is None or summary_path is None:
+                raise ValueError('v5 static report absent')
+            summary = json.loads(summary_path.read_text(encoding='utf-8'))
+            if summary.get('protocol_id') != V5_PROTOCOL or not isinstance(summary.get('cases'), list):
+                raise ValueError('v5 report identity mismatch')
+            result = {'status': 'completed', 'case_count': len(summary['cases'])}
+            status_path = root / GENERATION_FILE
+            if not status_path.exists():
+                with status_path.open('x', encoding='utf-8') as stream:
+                    json.dump(result, stream, ensure_ascii=False, indent=2, allow_nan=False)
+                    stream.write('\n')
+            return result
         from src.html_reporting import try_build_report
         merged = dict(pipeline, scoring_protocol=protocol,
                       coordinate_mode=pipeline.get('coordinate_mode') or config.get('coordinate_mode', 'geometry'))
