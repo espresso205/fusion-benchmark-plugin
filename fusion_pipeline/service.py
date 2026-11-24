@@ -106,7 +106,7 @@ class ManagementService:
                       "skills": {"type": "array", "items": {"type": "string"}},
                       "mcp_servers": {"type": "array", "items": {"type": "string"}}},
                   "required": ["schema", "study_kind", "skill_delivery", "exposure_mode", "skills", "mcp_servers"]},
-              "protocol":{"type":"string","enum":["fusion-step-adapted-v3.0","fusion-step-adapted-v4.0","fusion-step-adapted-v5.0"]},
+              "protocol":{"type":"string","enum":["fusion-step-adapted-v3.0","fusion-step-adapted-v4.0"]},
               "coordinate_mode":{"type":"string","enum":["geometry","strict"]},
               "cad_backend":{"type":"string","enum":["fusion","solidworks"]},
               "case_ids": {"type": "array", "items": {"type": "string"}}, "preflight_only": {"type": "boolean"}}),
@@ -147,7 +147,7 @@ class ManagementService:
                     "default_scoring_protocol":"fusion-step-adapted-v4.0", "default_coordinate_mode":"geometry",
                     "configured_scoring_protocol":(self.config or {}).get('protocol'),
                     "configured_coordinate_mode":(self.config or {}).get('coordinate_mode'),
-                    "supported_scoring_protocols":["fusion-step-adapted-v3.0","fusion-step-adapted-v4.0","fusion-step-adapted-v5.0"],
+                    "supported_scoring_protocols":["fusion-step-adapted-v3.0","fusion-step-adapted-v4.0"],
                     "candidate_profiles": sorted((self.config or {}).get('candidate_profiles', {})),
                     "candidate_selection_modes": ['legacy_unprofiled', 'candidate_profile'],
                     "capability_selection": {'skill_delivery': ['gateway_read'], 'exposure_mode': ['gateway_proxy'],
@@ -198,7 +198,7 @@ class ManagementService:
             from .runner import atomic
             config = dict(self.config)
             if 'protocol' in arguments:
-                if arguments['protocol'] not in ('fusion-step-adapted-v3.0','fusion-step-adapted-v4.0','fusion-step-adapted-v5.0'):
+                if arguments['protocol'] not in ('fusion-step-adapted-v3.0','fusion-step-adapted-v4.0'):
                     raise ValueError('unsupported scoring protocol')
                 if arguments['protocol'] != config.get('protocol'):
                     config.pop('coordinate_mode',None)
@@ -206,8 +206,8 @@ class ManagementService:
             if 'coordinate_mode' in arguments:
                 config['coordinate_mode']=arguments['coordinate_mode']
             selected_protocol=config.get('protocol','fusion-step-adapted-v4.0')
-            selected_mode=config.get('coordinate_mode','geometry' if selected_protocol in ('fusion-step-adapted-v4.0','fusion-step-adapted-v5.0') else 'strict')
-            if selected_mode not in ('geometry','strict') or selected_protocol not in ('fusion-step-adapted-v4.0','fusion-step-adapted-v5.0') and selected_mode!='strict':
+            selected_mode=config.get('coordinate_mode','geometry' if selected_protocol=='fusion-step-adapted-v4.0' else 'strict')
+            if selected_mode not in ('geometry','strict') or selected_protocol!='fusion-step-adapted-v4.0' and selected_mode!='strict':
                 raise ValueError('coordinate_mode must be geometry/strict; historical protocols require strict')
             from .candidate_config import resolve_candidate_configuration
             config = resolve_candidate_configuration(config, arguments, require_reasoning_verified=True)
@@ -288,16 +288,10 @@ class ManagementService:
                                   measurement_coverage=summary.get("measurement_coverage"),
                                   coordinate_mode=summary.get('coordinate_mode'), scored_metrics=summary.get('scored_metrics'),
                                   diagnostic_metrics=summary.get('diagnostic_metrics'))
-                    if summary.get('protocol_id') == 'fusion-step-adapted-v5.0':
-                        status.update({key:summary[key] for key in ('complete_case_ids','total_case_count',
-                            'participating_case_count','candidate_failure_rate','assembly_pass_rate',
-                            'measurement_completion_rate','basic_inconclusive_rate','batch_mean_scope','ranking_eligible')
-                            if key in summary})
                     allowed = {"case", "status", "final_score", "measurement_coverage", "measurement_weight_coverage",
                                "validation_status", "validation_passed", "participates_in_scoring", "score_kind", "score_interval",
                                "unavailable_metrics", "score_status", "aggregate_status", "scored_modules", "unmeasured_modules",
-                               "coordinate_mode", "diagnostic_unavailable_metrics", "partial_lower_bound", "partial_lower_bound_kind", "measurement_count",
-                               "ranking_eligible"}
+                               "coordinate_mode", "diagnostic_unavailable_metrics"}
                     metric_allowed = {"score", "status", "measured_score", "awarded_score", "score_source", "quality", "backend",
                                       "uncertainty", "reason_codes", "method", "method_id", "measurement_status", "measured", "fallback_used",
                                       "metric_role", "coordinate_mode"}
@@ -305,10 +299,8 @@ class ManagementService:
                                    'orthogonality_error','bbox_center_delta_mm','coordinate_mode',
                                    'rotation_matrix','translation_mm','rmse_mm','rotation_determinant','rotation_orthogonality_error'}
                     status["scores"] = [{**{key: row[key] for key in allowed if key in row},
-                                         **{key:{'status':row[key].get('status')} for key in
-                                            ('candidate_basic','candidate_assembly','reference_preflight') if isinstance(row.get(key),dict)},
                                          'execution':{key:value for key,value in row.get('execution',{}).items()
-                                                      if key in {'status','returncode','timed_out','wall_s','stage_timeouts'}},
+                                                      if key in {'status','returncode','timed_out','wall_s'}},
                                          **({'pose':{'status':row['pose'].get('status'),
                                              'raw':{key:value for key,value in row['pose'].get('raw',{}).items() if key in pose_fields}}}
                                             if isinstance(row.get('pose'),dict) else {}),

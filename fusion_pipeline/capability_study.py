@@ -116,33 +116,16 @@ def capture_common_identity(config, case_ids):
                 raise ValueError('study_private_' + role + '_hash_mismatch: ' + case_id)
         if _read(row['annotations']).get('gt_sha256') != hashes['gt']:
             raise ValueError('study_annotation_gt_binding_mismatch: ' + case_id)
-        acceptance_identity = {}
-        if config.get('protocol') == 'fusion-step-adapted-v5.0':
-            hashes['reference_acceptance'] = None
-            acceptance_identity['reference_acceptance_sha256'] = None
-        if config.get('protocol') == 'fusion-step-adapted-v5.0' and (row.get('reference_acceptance') or row.get('reference_acceptance_sha256')):
-            if not row.get('reference_acceptance') or not row.get('reference_acceptance_sha256'):
-                raise ValueError('study_reference_acceptance_hash_required: ' + case_id)
-            _, raw = capabilities._read_file(row['reference_acceptance'])
-            digest = hashlib.sha256(raw).hexdigest()
-            if digest != row['reference_acceptance_sha256']:
-                raise ValueError('study_reference_acceptance_hash_mismatch: ' + case_id)
-            acceptance = json.loads(raw)
-            if (acceptance.get('gt_sha256') != hashes['gt'] or
-                    acceptance.get('annotations_sha256') != hashes['annotations']):
-                raise ValueError('study_reference_acceptance_input_binding_mismatch: ' + case_id)
-            hashes['reference_acceptance'] = digest
-            acceptance_identity['reference_acceptance_sha256'] = digest
         inputs.append({'case_id': case_id, 'input_manifest': manifest})
         reference_hashes.append({'case_id': case_id, **hashes})
         cases.append({'case_id': case_id, 'input_manifest': manifest, 'input_manifest_sha256': _digest(manifest),
-                      'gt_sha256': hashes['gt'], 'annotations_sha256': hashes['annotations'], **acceptance_identity})
+                      'gt_sha256': hashes['gt'], 'annotations_sha256': hashes['annotations']})
     evaluator = Path(config.get('evaluator_directory', BASE)).resolve()
     if config.get('evaluator_zip') and not config.get('evaluator_directory'):
         raise ValueError('study_evaluator_directory_required')
     protocol, coordinate, weights = scoring_options(config, evaluator)
-    names = {name for name in ('evaluate.py', 'evaluate_v4.py', 'evaluate_v5.py', 'worker.py', 'worker_v4.py', 'worker_v5.py', 'bootstrap.py',
-                               'scheduler.py', 'weights.json', 'weights_v3.json', 'weights_v4.json', 'weights_v5.json',
+    names = {name for name in ('evaluate.py', 'evaluate_v4.py', 'worker.py', 'worker_v4.py', 'bootstrap.py',
+                               'scheduler.py', 'weights.json', 'weights_v3.json', 'weights_v4.json',
                                'SCORING_SOURCE_MANIFEST.json', 'PACKAGE_MANIFEST.json') if (evaluator / name).is_file()}
     for folder in ('src', 'scheduler', 'vendor'):
         names.update(path.relative_to(evaluator).as_posix() for path in (evaluator / folder).rglob('*')

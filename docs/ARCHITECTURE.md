@@ -47,9 +47,3 @@ Fusion MCP 请求超时、取消或执行状态未知时，保留锁及请求证
 ## v4 默认评分
 
 当前默认 v4/geometry 使用 evaluate_v4.py / worker_v4.py：原候选准入后生成刚体对齐副本，shape/dimension/mass 计主分；distance/face_match/section 与坐标偏差另作诊断。只有主分缺测降低覆盖。显式 strict 保持世界坐标，旧 v3 仍按前节合同执行。详见 [v4 合同](SCORING_V4.md)。
-
-## v5 显式评分
-
-选择v5后，evaluate_v5.py监督worker_v5.py的独立阶段：基础检查、参考验收、整体对齐、形状、尺寸、质量、零件匹配、自交、干涉和配合。各阶段单独保存完成状态与未检查项目，达到阶段时限后继续其他可执行项。参考验收文件和输入一同冻结；未通过验收或主分缺项时不发布完整总分。
-
-v5管理结果单独保留候选基础、装配与参考状态，私有静态报告位于evaluation/report.html。完整几何分数不认证装配。与v4的具体差异见[版本对照](V5_V4_COMPARISON.md)。

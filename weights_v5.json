@@ -1,6 +1,0 @@
-{
-  "protocol_id": "fusion-step-adapted-v5.0",
-  "weights": {"shape": 0.46153846153846156, "dimension": 0.38461538461538464, "mass": 0.15384615384615385},
-  "scored_metrics": ["shape", "dimension", "mass"],
-  "notes": "V5 retains v4 relative weights. Complete totals require all measurements, basic candidate pass and frozen reference acceptance. Missing measurements are null. Diagnostic lower bounds never enter complete means. Assembly qualification is independent. ranking_eligible=false."
-}
